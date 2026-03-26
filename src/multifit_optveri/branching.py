@@ -231,7 +231,7 @@ def iter_mtf_profiles(
     # This is the MTF-profile iterator from the paper-style branch decomposition.
     # When checking correctness, compare these arithmetic conditions with the
     # pseudocode and any case-specific lemmas that restrict feasible profiles.
-    nS3, nS4, nS5 = opt_profile.nS3, opt_profile.nS4, opt_profile.nS5
+    nS3, nS4 = opt_profile.nS3, opt_profile.nS4
     job_count = opt_profile.total_job_count
 
     if acceleration_case is AccelerationCase.CASE_1:

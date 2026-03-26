@@ -13,6 +13,10 @@ from multifit_optveri.models.obv import build_obv_model
 from multifit_optveri.models.spec import derive_obv_dimensions
 
 
+def _constraint_total(model: object) -> int:
+    return int(model.NumConstrs) + int(model.NumQConstrs) + int(model.NumGenConstrs)
+
+
 def _case(
     *,
     acceleration_case: AccelerationCase,
@@ -54,7 +58,7 @@ class ObvBuildTests(unittest.TestCase):
         try:
             self.assertEqual(built.dimensions, expected)
             self.assertEqual(built.model.NumVars, expected.total_variables)
-            self.assertEqual(built.model.NumConstrs, expected.total_constraints)
+            self.assertEqual(_constraint_total(built.model), expected.total_constraints)
             self.assertEqual(built.model.ModelSense, obv.GRB.MAXIMIZE)
         finally:
             built.model.dispose()
@@ -78,7 +82,7 @@ class ObvBuildTests(unittest.TestCase):
 
         try:
             self.assertEqual(built.model.NumVars, base_expected.total_variables)
-            self.assertGreater(built.model.NumConstrs, base_expected.total_constraints)
+            self.assertGreater(_constraint_total(built.model), base_expected.total_constraints)
             pn_var = built.model.getVarByName("p[24]")
             self.assertIsNotNone(pn_var)
             self.assertAlmostEqual(pn_var.LB, float(Fraction(7, 34)))

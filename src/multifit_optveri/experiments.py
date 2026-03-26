@@ -180,7 +180,7 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                         ell,
                         opt_profile,
                         acceleration_case,
-                        ):
+                    ):
                         if mtf_profile.total_job_count != job_count:
                             continue
                         # Materialize the branch into a concrete experiment case.

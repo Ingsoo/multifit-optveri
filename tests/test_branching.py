@@ -80,8 +80,17 @@ class BranchingTests(unittest.TestCase):
 
     def test_case_3_profiles_satisfy_basic_invariants(self) -> None:
         opt_profile = OptProfile(0, 8, 0, pattern="generic")
-        case_31_profiles = list(iter_mtf_profiles(8, 4, opt_profile, AccelerationCase.CASE_3_1))
-        case_32_profiles = list(iter_mtf_profiles(8, 4, OptProfile(0, 1, 7, pattern="generic"), AccelerationCase.CASE_3_2))
+        case_31_profiles = list(
+            iter_mtf_profiles(8, 4, opt_profile, AccelerationCase.CASE_3_1)
+        )
+        case_32_profiles = list(
+            iter_mtf_profiles(
+                8,
+                4,
+                OptProfile(0, 1, 7, pattern="generic"),
+                AccelerationCase.CASE_3_2,
+            )
+        )
 
         self.assertEqual(
             [profile.compact_id for profile in case_31_profiles],

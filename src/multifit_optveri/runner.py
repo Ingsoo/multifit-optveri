@@ -65,6 +65,15 @@ def _status_name(status_code: int) -> str:
     }.get(status_code, str(status_code))
 
 
+def _model_constraint_total(model: object) -> int | None:
+    linear = int(model.NumConstrs) if hasattr(model, "NumConstrs") else None
+    quadratic = int(model.NumQConstrs) if hasattr(model, "NumQConstrs") else 0
+    general = int(model.NumGenConstrs) if hasattr(model, "NumGenConstrs") else 0
+    if linear is None:
+        return None
+    return linear + quadratic + general
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
@@ -317,9 +326,10 @@ def run_case(case: ExperimentCase) -> SolveResult:
     }
     summary_payload["dimensions"] = {
         "total_variables": int(model.NumVars) if hasattr(model, "NumVars") else built_model.dimensions.total_variables,
-        "total_constraints": int(model.NumConstrs)
-        if hasattr(model, "NumConstrs")
-        else built_model.dimensions.total_constraints,
+        "total_constraints": _model_constraint_total(model) or built_model.dimensions.total_constraints,
+        "linear_constraints": int(model.NumConstrs) if hasattr(model, "NumConstrs") else None,
+        "quadratic_constraints": int(model.NumQConstrs) if hasattr(model, "NumQConstrs") else 0,
+        "general_constraints": int(model.NumGenConstrs) if hasattr(model, "NumGenConstrs") else 0,
         "spec_total_variables": built_model.dimensions.total_variables,
         "spec_total_constraints": built_model.dimensions.total_constraints,
         "variable_counts": built_model.dimensions.variable_counts,

@@ -89,7 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     for index, case in enumerate(prepared_cases, start=1):
         print(
             f"[{index}/{len(prepared_cases)}] Starting {case.case_id} "
-            f"(m={case.machine_count}, n={case.job_count}, acceleration={case.acceleration_case.value}, ell={case.ell})",
+            f"(m={case.machine_count}, n={case.job_count}, "
+            f"acceleration={case.acceleration_case.value}, ell={case.ell})",
             flush=True,
         )
         result = run_case(case)

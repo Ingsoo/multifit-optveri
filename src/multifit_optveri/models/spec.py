@@ -9,6 +9,7 @@ from multifit_optveri.acceleration import AccelerationCase
 # that the implemented model equals the paper: many case-specific structural
 # constraints in `models/obv.py` are more detailed than the counts tracked here.
 
+
 @dataclass(frozen=True)
 class ObvModelDimensions:
     """Coarse count summary for one generated OBV model."""

@@ -9,7 +9,6 @@ from multifit_optveri.acceleration import AccelerationCase
 from multifit_optveri.branching import MtfProfile, OptProfile
 from multifit_optveri.config import SolverConfig, load_experiment_config
 from multifit_optveri.experiments import ExperimentCase, enumerate_cases
-from multifit_optveri.math_utils import parse_ratio
 from multifit_optveri.models import obv
 from multifit_optveri.models.obv import (
     GurobiUnavailableError,
