@@ -106,6 +106,23 @@ class ObvBuildTests(unittest.TestCase):
         finally:
             built.model.dispose()
 
+    def test_opt_profile_without_three_job_machines_tightens_p_upper_bounds(self) -> None:
+        case = _case(
+            acceleration_case=AccelerationCase.BASE,
+            machine_count=8,
+            job_count=32,
+            opt_profile=OptProfile(0, 8, 0),
+        )
+        built = build_obv_model(case)
+
+        try:
+            model: GurobiModel = built.model
+            p1_var = cast(GurobiVar | None, model.getVarByName("p[1]"))
+            self.assertIsNotNone(p1_var)
+            self.assertAlmostEqual(p1_var.UB, float(Fraction(47, 119)))
+        finally:
+            built.model.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

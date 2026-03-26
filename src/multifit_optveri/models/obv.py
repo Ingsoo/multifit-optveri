@@ -130,6 +130,22 @@ def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
     return lower_bound
 
 
+def _opt_job_cardinality_lower_bound(case: ExperimentCase) -> int:
+    """Return the minimum OPT machine cardinality already fixed by the branch.
+
+    When an OPT profile is known, we can tighten every p_j upper bound using the
+    minimum number of jobs that must share an OPT machine with j.
+    """
+
+    if case.opt_profile is None:
+        return OPT_JOB_CARDINALITY_LOWER_BOUND
+
+    machine_cardinalities = case.opt_profile.machine_cardinalities
+    if not machine_cardinalities:
+        return OPT_JOB_CARDINALITY_LOWER_BOUND
+    return min(machine_cardinalities)
+
+
 def _processing_time_upper_bound(case: ExperimentCase, job_index: int, lower_bound: Fraction) -> Fraction:
     """Return the variable upper bound used for p_j.
 
@@ -141,9 +157,10 @@ def _processing_time_upper_bound(case: ExperimentCase, job_index: int, lower_bou
     # carried over from the earlier implementation to help presolve. They are an
     # important "implementation choice vs paper text" checkpoint.
     upper_bound = Fraction(1, ((job_index - 1) // case.machine_count) + 1)
+    opt_job_cardinality_lower_bound = _opt_job_cardinality_lower_bound(case)
     upper_bound = min(
         upper_bound,
-        Fraction(1, 1) - (OPT_JOB_CARDINALITY_LOWER_BOUND - 1) * lower_bound,
+        Fraction(1, 1) - (opt_job_cardinality_lower_bound - 1) * lower_bound,
     )
     if job_index == case.job_count and case.acceleration_case is not AccelerationCase.BASE:
         pn_upper_bound = case.acceleration_case.pn_range.upper
