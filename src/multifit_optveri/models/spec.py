@@ -11,6 +11,8 @@ from multifit_optveri.acceleration import AccelerationCase
 
 @dataclass(frozen=True)
 class ObvModelDimensions:
+    """Coarse count summary for one generated OBV model."""
+
     machine_count: int
     job_count: int
     acceleration_case: AccelerationCase
@@ -20,10 +22,14 @@ class ObvModelDimensions:
 
     @property
     def total_variables(self) -> int:
+        """Total number of decision variables in the coarse spec."""
+
         return sum(self.variable_counts.values())
 
     @property
     def total_constraints(self) -> int:
+        """Total number of tracked constraint families in the coarse spec."""
+
         return sum(self.constraint_counts.values())
 
 
@@ -44,6 +50,8 @@ def derive_obv_dimensions(
         raise ValueError("job_count must be at least 2.")
 
     variable_counts = {
+        # Base Section 4 variables: processing times, OPT assignment, MTF
+        # assignment/load tracking, and the objective variable Z.
         "p": job_count,
         "x": machine_count * job_count,
         "q": machine_count * (job_count - 1),
@@ -54,6 +62,7 @@ def derive_obv_dimensions(
     mtf_init_order_count = sum(max(machine_count - job_index, 0) for job_index in range(1, job_count))
 
     constraint_counts = {
+        # Base Section 4 model families.
         "sorting": job_count - 1,
         "opt_assign": job_count,
         "opt_makespan": machine_count,
@@ -79,6 +88,8 @@ def derive_obv_dimensions(
         constraint_counts["opt_smallest_jobs_sum"] = 1
 
     if acceleration_case is not AccelerationCase.BASE:
+        # These are only the common Section 5 cut families. The many detailed
+        # case/profile constraints in `obv.py` are not exhaustively counted here.
         constraint_counts["pn_common_lb"] = 1
         constraint_counts["opt_cardinality"] = machine_count
         constraint_counts["opt_cardinality_order"] = machine_count - 1
@@ -91,6 +102,8 @@ def derive_obv_dimensions(
             constraint_counts["case_pn_ub"] = 1
 
     if include_profile_cardinality_constraints:
+        # These counts only represent the coarse profile-cardinality fixing
+        # constraints; they do not include the fine-grained structural cuts.
         constraint_counts["opt_profile_cardinality"] = machine_count
         constraint_counts["mtf_profile_cardinality"] = machine_count
 

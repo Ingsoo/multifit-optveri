@@ -4,6 +4,13 @@ from dataclasses import dataclass
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
+# This module contains the actual Gurobi model for the OptVeri formulation.
+# If you are reading the code with the paper open, the high-level map is:
+# 1. `build_obv_model`: Section 4 base MIQP.
+# 2. `_apply_global_valid_inequalities`: globally useful strengthening cuts.
+# 3. `_apply_paper_acceleration_constraints`: Section 5 common acceleration cuts.
+# 4. `_apply_profile_cardinality_constraints` and below: case/profile-specific cuts.
+
 from multifit_optveri.acceleration import (
     AccelerationCase,
     PAPER_MACHINE_RANGE,
@@ -42,6 +49,9 @@ else:
 
 PVarMap = dict[int, GurobiVar]
 TupleVarMap = GurobiTupleDict
+# `p` is stored as a plain dict because it is indexed only by job.
+# `x`, `q`, and `s` are Gurobi tupledict objects because they are indexed by
+# two coordinates and frequently used inside generator expressions.
 
 
 class GurobiUnavailableError(RuntimeError):
@@ -54,12 +64,21 @@ BOUND_STOP_TOLERANCE = 1e-6
 
 @dataclass
 class BuiltObvModel:
+    """Bundle the built Gurobi model with a coarse dimension summary."""
+
     model: GurobiModel
     dimensions: ObvModelDimensions
 
 
 @dataclass(frozen=True)
 class MtfProfileLayout:
+    """Expanded positional view of an abstract MTF profile tuple.
+
+    The branch iterators speak in profile counts such as |F1|, |R2|, |F2|, ...
+    This dataclass converts those counts into consecutive machine-id blocks and
+    index markers (e2/e3/e4, t2/t3/t4) used throughout the Section 5 cuts.
+    """
+
     f1_machines: tuple[int, ...]
     r2_machines: tuple[int, ...]
     f2_machines: tuple[int, ...]
@@ -76,6 +95,8 @@ class MtfProfileLayout:
 
 
 def _require_gurobi() -> None:
+    """Fail fast when model building is requested without gurobipy installed."""
+
     if gp is None or GRB is None:
         raise GurobiUnavailableError(
             "gurobipy is not available. Install it and activate a Gurobi license to run models."
@@ -83,18 +104,24 @@ def _require_gurobi() -> None:
 
 
 def _as_float(value: Fraction) -> float:
+    """Convert an exact Fraction into the float form expected by Gurobi."""
+
     return float(value.numerator / value.denominator)
 
 
 def _common_processing_time_lower_bound(
     machine_count: int, target_ratio: Fraction
 ) -> Fraction:
+    """Return the generic lower bound on p_n used before case-specific cuts."""
+
     # Common lower bound on p_n used already in the base reasoning and then
     # tightened further by Section 5's case split.
     return (target_ratio - 1) * machine_count / (machine_count - 1)
 
 
 def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
+    """Return the final lower bound used when creating all p_j variables."""
+
     # This combines the generic lower bound with the case-specific p_n interval.
     # If the paper/code comparison on variable domains fails, start here.
     lower_bound = _common_processing_time_lower_bound(
@@ -110,6 +137,12 @@ def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
 def _processing_time_upper_bound(
     case: ExperimentCase, job_index: int, lower_bound: Fraction
 ) -> Fraction:
+    """Return the variable upper bound used for p_j.
+
+    This is intentionally stronger than the bare formulation because the old
+    implementation used these bounds to improve presolve and tree performance.
+    """
+
     # These bounds are stronger than the pure mathematical formulation and were
     # carried over from the earlier implementation to help presolve. They are an
     # important "implementation choice vs paper text" checkpoint.
@@ -129,10 +162,14 @@ def _processing_time_upper_bound(
 
 
 def _opt_cardinality_upper_bound(lower_bound: Fraction) -> int:
+    """Compute the global upper bound on OPT machine cardinality."""
+
     return ceil_fraction(Fraction(1, 1) / lower_bound) - 1
 
 
 def _mtf_cardinality_upper_bound(machine_count: int, target_ratio: Fraction) -> int:
+    """Compute the global upper bound on MTF machine cardinality."""
+
     expression = (Fraction(machine_count, 1) - target_ratio) / (
         machine_count * (target_ratio - 1)
     )
@@ -140,6 +177,8 @@ def _mtf_cardinality_upper_bound(machine_count: int, target_ratio: Fraction) -> 
 
 
 def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
+    """Guard Section 5 cuts so they are used only in the paper's regime."""
+
     # Section 5 in the current code is only claimed for the paper setting
     # rho = 20/17 and m in {8, ..., 12}. If you run outside that range, you are
     # no longer checking the same statement as the paper.
@@ -165,12 +204,18 @@ def _apply_paper_acceleration_constraints(
     truncated_jobs: range,
     machines: range,
 ) -> None:
+    """Add the common Section 5 cuts that apply before case-specific structure."""
+
     # These are the common Section 5 conditions that apply before any profile-
     # specific reasoning: common p_n lower bound, cardinality limits, and the
     # top-level case interval on p_n.
     common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
 
     model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
+    # Common Proposition/Observation consequences:
+    # - all OPT machines have bounded cardinality
+    # - OPT machine sizes are sorted nondecreasingly
+    # - all MTF machines have bounded cardinality
     model.addConstrs(
         (gp.quicksum(x[i, j] for j in jobs) <= 5 for i in machines),
         name="opt_cardinality",
@@ -212,12 +257,16 @@ def _apply_profile_cardinality_constraints(
     machines: range,
     target: float,
 ) -> None:
+    """Tie external branch choices (ell / profiles) to actual model constraints."""
+
     # This function ties the outer branching objects (ell, OPT profile, MTF profile)
     # to actual model constraints. If the iterator families match the paper but the
     # resulting model still differs, this is the next file section to inspect.
     layout: MtfProfileLayout | None = None
 
     if case.ell is not None:
+        # This is the D / D' split from Section 5:
+        # jobs before ell belong to D, jobs from ell onward belong to D'.
         for job_index in range(1, case.job_count):
             if job_index < case.ell:
                 model.addConstr(
@@ -235,6 +284,8 @@ def _apply_profile_cardinality_constraints(
                 )
 
     if case.opt_profile is not None:
+        # Fix the number of jobs on each OPT machine according to the chosen
+        # coarse OPT profile branch.
         for machine_index, cardinality in enumerate(
             case.opt_profile.machine_cardinalities, start=1
         ):
@@ -244,6 +295,8 @@ def _apply_profile_cardinality_constraints(
             )
 
     if case.mtf_profile is not None:
+        # Fix the number of jobs on each MTF machine according to the chosen
+        # coarse MTF profile branch, then refine with profile-specific cuts.
         layout = _build_mtf_profile_layout(case)
         for machine_index, cardinality in enumerate(
             case.mtf_profile.machine_cardinalities, start=1
@@ -280,6 +333,8 @@ def _apply_profile_cardinality_constraints(
 
 
 def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
+    """Expand the abstract MTF profile into concrete machine blocks and indices."""
+
     if case.mtf_profile is None:
         raise ValueError("MTF profile layout requires case.mtf_profile.")
 
@@ -292,6 +347,7 @@ def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
     cursor = 0
 
     def take(count: int) -> tuple[int, ...]:
+        # Consume the next consecutive `count` machine ids from left to right.
         nonlocal cursor
         values = tuple(machine_ids[cursor : cursor + count])
         cursor += count
@@ -340,6 +396,8 @@ def _apply_mtf_base_profile_constraints(
     target: float,
     layout: MtfProfileLayout,
 ) -> None:
+    """Add MTF structural cuts shared by all case branches once a profile is fixed."""
+
     # These are the generic per-profile MTF structural consequences used across
     # cases once a concrete MTF profile is fixed.
     profile = case.mtf_profile
@@ -347,12 +405,15 @@ def _apply_mtf_base_profile_constraints(
         return
 
     for machine_index in layout.f1_machines:
+        # Machines in F1 always receive their diagonal job first.
         model.addConstr(
             q[machine_index, machine_index] == 1,
             name=f"F1_assignment_constr[{machine_index}]",
         )
 
     if layout.f1_machines:
+        # The first non-F1 machine immediately after the F1 block also receives
+        # its own diagonal job before the fallback jobs return.
         last_f1 = layout.f1_machines[-1]
         model.addConstr(
             q[last_f1 + 1, last_f1 + 1] == 1,
@@ -364,6 +425,8 @@ def _apply_mtf_base_profile_constraints(
         )
 
     if layout.r2_machines:
+        # R2 machines are regular 2-machines: the last such machine plus job n
+        # must already be tight enough to explain why n does not fit later.
         model.addConstr(
             p[layout.e2 + 2 * profile.nR2 - 2]
             + p[layout.e2 + 2 * profile.nR2 - 1]
@@ -376,6 +439,8 @@ def _apply_mtf_base_profile_constraints(
         else:
             proc_same_range = range(layout.t2 + 1, layout.e2 + 2 * profile.nR2 - 2)
         for job_index in proc_same_range:
+            # Jobs in the regular interior of R2 can be assumed to have equal
+            # processing times; symmetry is then broken in OPT accordingly.
             model.addConstr(
                 p[job_index] == p[job_index + 1],
                 name=f"R2_processing_times[{job_index}]",
@@ -393,12 +458,15 @@ def _apply_mtf_base_profile_constraints(
             )
 
     if layout.f2_machines:
+        # The tail of the F2 block must already be near-tight in MTF.
         model.addConstr(
             p[layout.e3 - 2] + p[layout.e3 - 1] + p[layout.e3] >= target,
             name=f"F2_valid_constr[{layout.f2_machines[-1]}]",
         )
 
     if layout.r3_machines:
+        # Same story for regular 3-machines: near-tight last machine and equal
+        # processing times on the regular interior.
         model.addConstr(
             p[layout.e3 + 3 * profile.nR3 - 3]
             + p[layout.e3 + 3 * profile.nR3 - 2]
@@ -429,6 +497,7 @@ def _apply_mtf_base_profile_constraints(
             )
 
     if layout.f3_machines:
+        # F3 machines are exactly the place where 4 scheduled jobs appear before n.
         model.addConstr(
             p[layout.e4 - 3] + p[layout.e4 - 2] + p[layout.e4 - 1] + p[layout.e4]
             >= target,
@@ -436,6 +505,7 @@ def _apply_mtf_base_profile_constraints(
         )
 
     if layout.r4_machines:
+        # Regular 4-machines mirror the same pattern as R2/R3.
         model.addConstr(
             p[layout.e4 + 4 * profile.nR4 - 4]
             + p[layout.e4 + 4 * profile.nR4 - 3]
@@ -467,6 +537,8 @@ def _apply_mtf_base_profile_constraints(
             )
 
     for machine_index in layout.m5_machines:
+        # The profile object already says these are 5-job MTF machines, so make
+        # the exact cardinality explicit at the model level.
         model.addConstr(
             gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
             == 5,
@@ -486,6 +558,13 @@ def _apply_global_valid_inequalities(
     machines: range,
     target: float,
 ) -> None:
+    """Add global cuts that are useful in all branches.
+
+    These are a mix of paper-level valid inequalities and old-code
+    strengthenings. When auditing paper/code fidelity, inspect this block
+    separately from the pure Section 4 formulation.
+    """
+
     # These are global strengthenings used regardless of the case split.
     # Some come directly from the paper's valid inequalities, while others were
     # retained from the earlier implementation to speed up solving. If you are
@@ -504,6 +583,8 @@ def _apply_global_valid_inequalities(
         ),
         name="opt_cardinality_lb",
     )
+    # Since jobs are sorted, the smallest jobs also satisfy an aggregate upper
+    # bound that helps OPT-side pruning.
     model.addConstrs(
         (
             gp.quicksum(x[machine_index, job_index] for job_index in jobs)
@@ -534,6 +615,7 @@ def _apply_global_valid_inequalities(
         ),
         name="mtf_init_order",
     )
+    # Machine 1 starts with job 1, and all other partial sums start at zero.
     model.addConstr(s[1, 1] == p[1], name="mtf_init_fixed[1]")
     model.addConstrs(
         (
@@ -570,12 +652,15 @@ def _apply_global_valid_inequalities(
     )
 
     if case.solver.legacy_best_bd_stop_at_target and case.enforce_target_lower_bound:
+        # Legacy option carried over from the old implementation.
         model.Params.BestBdStop = target + BOUND_STOP_TOLERANCE
 
 
 def _build_opt_machine_groups(
     case: ExperimentCase, machines: range
 ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    """Split OPT machines into consecutive 3-, 4-, and 5-job groups."""
+
     # Helper used by case-specific Section 5 constraints to interpret the OPT
     # profile as consecutive 3-job / 4-job / 5-job machine groups.
     if case.opt_profile is None:
@@ -592,6 +677,8 @@ def _build_opt_machine_groups(
 
 
 def _machine_after_pair_block(layout: MtfProfileLayout) -> int:
+    """Return the first machine after the F1/R2/F2 pairing prefix."""
+
     if layout.f2_machines:
         return layout.f2_machines[-1] + 1
     if layout.r2_machines:
@@ -613,6 +700,8 @@ def _apply_r5_constraints(
     e4: int,
     t4: int,
 ) -> None:
+    """Add the shared Case 3 constraints for the 5-job MTF tail."""
+
     # Shared helper for the Case 3 branches when 5-job MTF machines are present.
     profile = case.mtf_profile
     if profile is None or not layout.m5_machines:
@@ -637,6 +726,7 @@ def _apply_r5_constraints(
         proc_same_range = range(t5 + 1, e5 + 5 * profile.nM5 - 5)
 
     for job_index in proc_same_range:
+        # As in R2/R3/R4, regular interior jobs can be collapsed to equal sizes.
         model.addConstr(
             p[job_index] == p[job_index + 1],
             name=f"case34_M5_processing_times[{job_index}]",
@@ -666,6 +756,16 @@ def _apply_case_profile_constraints(
     target: float,
     layout: MtfProfileLayout,
 ) -> None:
+    """Add the case-specific structural cuts implied by the chosen branch.
+
+    This is the densest part of the file. Read it as:
+    1. Case 1 block
+    2. Case 2 block
+    3. Shared Case 3 prefix
+    4. Case 3-1 block
+    5. Case 3-2 block
+    """
+
     # This is the main Section 5 branch-specific encoding. Compare its four big
     # branches with the paper's Case 1, Case 2, Case 3-1, and Case 3-2 results.
     # If you suspect a mismatch with the paper, this is usually the first place
@@ -680,6 +780,9 @@ def _apply_case_profile_constraints(
     s3_machines, _, s5_machines = _build_opt_machine_groups(case, machines)
 
     if case.acceleration_case is AccelerationCase.CASE_1:
+        # Case 1: p_n >= 11/51.
+        # Here the structure is the cleanest: no F1, long jobs are paired in
+        # R2/F2, and the first R3 machine is anchored at ell, ell+1, ell+2.
         model.addConstrs(
             (
                 x[machine_index, job_index] == 0
@@ -722,11 +825,13 @@ def _apply_case_profile_constraints(
                 name=f"case1_F2_consec_2[{machine_index}]",
             )
         if layout.f2_machines:
+            # The last F2 pair blocks the next short job plus n.
             model.addConstr(
                 p[ell - 2] + p[ell - 1] + p[ell + 2] >= target,
                 name="case1_F2_valid_constr",
             )
         if layout.r3_machines:
+            # The first R3 machine is fixed to the first three short jobs.
             first_r3 = layout.r3_machines[0]
             model.addConstr(
                 q[first_r3, ell] == 1, name=f"case1_R3_consec_1[{first_r3}]"
@@ -740,6 +845,9 @@ def _apply_case_profile_constraints(
         return
 
     if case.acceleration_case is AccelerationCase.CASE_2:
+        # Case 2: 7/34 <= p_n < 11/51.
+        # This largely mirrors Case 1, except the odd/even behavior of ell
+        # changes and one OPT machine may contain two long jobs.
         model.addConstrs(
             (
                 x[machine_index, job_index] == 0
@@ -754,6 +862,8 @@ def _apply_case_profile_constraints(
             name="case2_OPT_ell_assignment_constr",
         )
         if ell % 2 == 0:
+            # Even ell corresponds to the paper's "one machine has two long jobs"
+            # phenomenon in the OPT profile.
             model.addConstr(
                 gp.quicksum(x[machine_index, ell - 1] for machine_index in s3_machines)
                 == 1,
@@ -778,12 +888,14 @@ def _apply_case_profile_constraints(
                 name=f"case2_F2_consec_2[{machine_index}]",
             )
         if layout.f2_machines:
+            # The first short-job triple blocked after F2 is anchored around e3.
             e3 = case.opt_profile.nS3 + 1
             model.addConstr(
                 p[e3 - 1] + p[e3] + p[e3 + 1] >= target,
                 name="case2_F2_valid_constr",
             )
         if layout.r3_machines:
+            # As in Case 1, the first R3 machine is explicitly anchored.
             first_r3 = layout.r3_machines[0]
             e3 = case.opt_profile.nS3 + 1
             model.addConstr(q[first_r3, e3] == 1, name=f"case2_R3_consec_1[{first_r3}]")
@@ -796,6 +908,8 @@ def _apply_case_profile_constraints(
         return
 
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
+    # From here on we are in Case 3-1 or Case 3-2.
+    # First add the structural facts shared by both subcases.
     if s5_machines and prefix_end >= 1:
         model.addConstrs(
             (
@@ -808,6 +922,8 @@ def _apply_case_profile_constraints(
 
     s3_prefix_count = 2 * (profile.nF1 + profile.nR2) - 1
     if s3_prefix_count > 0:
+        # Early OPT machines are forced to be 3-job machines by the Case 3 prefix
+        # structure proven in the paper.
         model.addConstrs(
             (
                 gp.quicksum(x[machine_index, job_index] for job_index in jobs) == 3
@@ -823,6 +939,7 @@ def _apply_case_profile_constraints(
         ),
         name="case34_F1_consec_constrs",
     )
+    # After the F1 fallback block, the next diagonal job is also fixed.
     if (
         profile.nF1 + 1 <= case.machine_count
         and 2 * (profile.nF1 + 1) in truncated_jobs
@@ -833,6 +950,7 @@ def _apply_case_profile_constraints(
         )
 
     for machine_index in layout.r2_machines:
+        # Both shared Case 3 subcases keep the consecutive pairing behavior on R2.
         model.addConstr(
             q[machine_index, 2 * machine_index - 1] == 1,
             name=f"case34_R2_consec_1[{machine_index}]",
@@ -843,6 +961,7 @@ def _apply_case_profile_constraints(
         )
 
     for machine_index in layout.f2_machines:
+        # Both shared Case 3 subcases also keep consecutive pairing on F2.
         model.addConstr(
             q[machine_index, 2 * machine_index - 1] == 1,
             name=f"case34_F2_consec_1[{machine_index}]",
@@ -853,7 +972,9 @@ def _apply_case_profile_constraints(
         )
 
     if case.acceleration_case is AccelerationCase.CASE_3_1:
+        # Case 3-1: ell is NOT a fallback job on an F2 machine.
         if prefix_end >= 1:
+            # Early OPT assignments keep the diagonal/sorted initialization.
             model.addConstrs(
                 (
                     x[machine_index, job_index] == 0
@@ -865,6 +986,7 @@ def _apply_case_profile_constraints(
             )
 
         diag_count = 2 * (profile.nF1 + profile.nR2 + profile.nF2)
+        # The whole prefix up through F2 is diagonally anchored in OPT.
         model.addConstrs(
             (
                 x[machine_index, machine_index] == 1
@@ -877,6 +999,7 @@ def _apply_case_profile_constraints(
             2 * (profile.nF1 + profile.nR2)
             - 1 : 2 * (profile.nF1 + profile.nR2 + profile.nF2)
         ]:
+            # Machines near the F2 boundary cannot exceed 4 jobs in OPT.
             model.addConstr(
                 gp.quicksum(x[machine_index, job_index] for job_index in jobs) <= 4,
                 name=f"case3_always_less_S4_constr[{machine_index}]",
@@ -885,6 +1008,7 @@ def _apply_case_profile_constraints(
         for machine_index in machine_ids[
             2 * (profile.nF1 + profile.nR2 + profile.nF2) :
         ]:
+            # Later OPT machines must be 4+ cardinality.
             model.addConstr(
                 gp.quicksum(x[machine_index, job_index] for job_index in jobs) >= 4,
                 name=f"case3_always_greater_S4_constr[{machine_index}]",
@@ -894,6 +1018,7 @@ def _apply_case_profile_constraints(
         e4 = e3 + 3 * (profile.nR3 + profile.nF3)
         t4 = e4 + profile.nF2 + profile.nF3
         if ell - 3 == 2 * (profile.nF1 + profile.nR2 + profile.nF2):
+            # Special sub-branch where ell starts immediately after the pair block.
             next_machine = _machine_after_pair_block(layout)
             model.addConstr(
                 p[ell] <= case.machine_count / 34, name="case3_ell_proc_time"
@@ -916,6 +1041,9 @@ def _apply_case_profile_constraints(
         return
 
     diag_count = 2 * (profile.nF1 + profile.nR2)
+    # Case 3-2: ell IS a fallback job on F2.
+    # OPT is anchored only through the F1/R2 prefix; the rest is constrained by
+    # consecutive structure and cardinality restrictions around F2.
     model.addConstrs(
         (
             x[machine_index, machine_index] == 1
@@ -966,20 +1094,25 @@ def _apply_case_profile_constraints(
         ),
         name="case4_F2_consecutive_jobs_in_OPT",
     )
+    # The monotonicity above forces the consecutive block structure on OPT jobs
+    # associated with the F2 region.
 
     if diag_count >= 1 and diag_count in machine_ids:
+        # The last machine before the F2 block cannot still be a 5-job OPT machine.
         model.addConstr(
             gp.quicksum(x[diag_count, job_index] for job_index in jobs) <= 4,
             name="case4_F2_last_job_S3_or_S4",
         )
 
     for machine_index in machine_ids[diag_count:]:
+        # Everything after that point must have OPT cardinality at least 4.
         model.addConstr(
             gp.quicksum(x[machine_index, job_index] for job_index in jobs) >= 4,
             name=f"case4_F2_always_greater_S4_constr[{machine_index}]",
         )
 
     if layout.f1_machines:
+        # Same-processing-time WLOG for the regular and fallback jobs of F1.
         model.addConstr(
             p[profile.nF1] + p[profile.nF1 + 1] >= target,
             name="case4_F1_valid_constr",
@@ -998,6 +1131,7 @@ def _apply_case_profile_constraints(
         p[e3 - 2] + p[e3 - 1] + p[e3] >= target,
         name="case4_F2_valid_constr",
     )
+    # Same-processing-time WLOG for the regular jobs in the F2 region.
     for job_index in range(layout.e2 + 2 * profile.nR2, e3 - 2):
         model.addConstr(
             p[job_index] == p[job_index + 1],
@@ -1011,9 +1145,12 @@ def _apply_case_profile_constraints(
         ),
         name="case4_ell_in_F2_consec",
     )
+    # In Case 3-2, ell and the following fallback jobs march consecutively
+    # through the F2 machines.
 
     next_machine = layout.f2_machines[-1] + 1
     if ell == 2 * (profile.nF1 + profile.nR2 + profile.nF2) + 2:
+        # One possible alignment of ell relative to the first post-F2 machine.
         model.addConstr(q[next_machine, ell - 1] == 1, name="case4_ell_consec_1")
         model.addConstr(
             q[next_machine, ell + profile.nF2] == 1, name="case4_ell_consec_2"
@@ -1022,6 +1159,7 @@ def _apply_case_profile_constraints(
             q[next_machine, ell + profile.nF2 + 1] == 1, name="case4_ell_consec_3"
         )
     elif ell == 2 * (profile.nF1 + profile.nR2 + profile.nF2) + 3:
+        # The other possible alignment of ell relative to the first post-F2 machine.
         model.addConstr(q[next_machine, ell - 2] == 1, name="case4_ell_consec_1")
         model.addConstr(q[next_machine, ell - 1] == 1, name="case4_ell_consec_2")
         model.addConstr(
@@ -1042,6 +1180,8 @@ def _apply_case_profile_constraints(
 
 
 def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
+    """Build the full OBV model for one fully specified experiment case."""
+
     _require_gurobi()
 
     # Coarse spec counts used for sanity checks. Useful, but not a substitute
@@ -1057,6 +1197,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     )
 
     model = gp.Model(f"obv_{case.case_id}")
+    # Solver parameter pass-through from the config file.
     model.Params.NonConvex = case.solver.non_convex
     model.Params.OutputFlag = case.solver.output_flag
     if case.solver.time_limit_seconds is not None:
@@ -1097,28 +1238,34 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
 
     # Section 4 base MIQP constraints start here.
     model.addConstrs(
+        # Jobs are globally sorted by processing time.
         (p[j] >= p[j + 1] for j in range(1, case.job_count)),
         name="sorting",
     )
     model.addConstrs(
+        # Every job is assigned to exactly one OPT machine.
         (gp.quicksum(x[i, j] for i in machines) == 1 for j in jobs),
         name="opt_assign",
     )
     model.addConstrs(
+        # OPT makespan is normalized to 1.
         (gp.quicksum(p[j] * x[i, j] for j in jobs) <= 1.0 for i in machines),
         name="opt_makespan",
     )
 
     model.addConstrs(
+        # Every job except n is assigned in the simulated MTF schedule.
         (gp.quicksum(q[i, j] for i in machines) == 1 for j in truncated_jobs),
         name="mtf_assign",
     )
     model.addConstrs(
+        # Initialization of machine partial sums in MTF.
         (s[i, 1] == q[i, 1] * p[1] for i in machines),
         name="mtf_init",
     )
     model.addConstrs(
         (
+            # Incremental update of each machine load under MTF.
             s[i, j] - s[i, j - 1] == q[i, j] * p[j]
             for i in machines
             for j in range(2, case.job_count)
@@ -1126,11 +1273,14 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="mtf_contribution",
     )
     model.addConstrs(
+        # All truncated MTF loads must stay within the target ratio.
         (s[i, j] <= target for i in machines for j in truncated_jobs),
         name="mtf_feasible",
     )
     model.addConstrs(
         (
+            # If job j is not assigned to any machine up to i, then machine i
+            # must already be too full to receive it.
             s[i, j - 1] + p[j]
             >= target
             * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
@@ -1140,6 +1290,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="mtf_logic",
     )
     model.addConstrs(
+        # Objective value z_var is the minimum post-n overload across machines.
         (s[i, case.job_count - 1] + p[case.job_count] >= z_var for i in machines),
         name="mtf_objective",
     )
@@ -1160,6 +1311,8 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     )
 
     if case.enforce_target_lower_bound:
+        # In verification mode we only care about candidate counterexamples with
+        # objective value at least the claimed target ratio.
         model.addConstr(z_var >= target, name="target_lb")
 
     # Section 5 common case split conditions.
@@ -1184,5 +1337,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         )
 
     model.setObjective(z_var, GRB.MAXIMIZE)
+    # Maximizing z_var asks whether there exists an instance whose final failed
+    # MTF placement would exceed the claimed target ratio.
     model.update()
     return BuiltObvModel(model=model, dimensions=dimensions)

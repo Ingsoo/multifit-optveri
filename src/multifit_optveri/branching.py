@@ -11,8 +11,15 @@ from multifit_optveri.acceleration import AccelerationCase
 # the most important question here is whether each iterator yields exactly the
 # family of branches intended by the pseudocode and case analysis.
 
+
 @dataclass(frozen=True)
 class MtfProfile:
+    """Coarse MTF machine-type profile used by the outer branch decomposition.
+
+    The tuple fields correspond to consecutive machine blocks:
+    (F1, R2, F2, R3, F3, R4, M5).
+    """
+
     m1f: int = 0
     m2r: int = 0
     m2f: int = 0
@@ -23,10 +30,14 @@ class MtfProfile:
 
     @property
     def machine_count(self) -> int:
+        """Total number of machines represented by this profile."""
+
         return self.m1f + self.m2r + self.m2f + self.m3r + self.m3f + self.m4 + self.m5
 
     @property
     def scheduled_job_count(self) -> int:
+        """Number of jobs that MTF successfully places before job n fails."""
+
         return (
             2 * (self.m1f + self.m2r)
             + 3 * (self.m2f + self.m3r)
@@ -47,6 +58,8 @@ class MtfProfile:
 
     @property
     def machine_cardinalities(self) -> tuple[int, ...]:
+        """Per-machine job counts in the left-to-right block order."""
+
         return (
             (2,) * (self.m1f + self.m2r)
             + (3,) * (self.m2f + self.m3r)
@@ -85,6 +98,8 @@ class MtfProfile:
 
 @dataclass(frozen=True)
 class OptProfile:
+    """Coarse OPT machine-cardinality profile used in the outer branching."""
+
     m3: int
     m4: int
     m5: int
@@ -92,10 +107,14 @@ class OptProfile:
 
     @property
     def machine_count(self) -> int:
+        """Total number of OPT machines represented by this profile."""
+
         return self.m3 + self.m4 + self.m5
 
     @property
     def total_job_count(self) -> int:
+        """Total number of jobs implied by the OPT profile."""
+
         return 3 * self.m3 + 4 * self.m4 + 5 * self.m5
 
     @property
@@ -109,6 +128,8 @@ class OptProfile:
 
     @property
     def machine_cardinalities(self) -> tuple[int, ...]:
+        """Per-machine OPT cardinalities in sorted machine order."""
+
         return (3,) * self.m3 + (4,) * self.m4 + (5,) * self.m5
 
     @property
@@ -176,6 +197,7 @@ def iter_opt_profiles(
         return
 
     for nS3, nS4, nS5 in product(range(machine_count + 1), repeat=3):
+        # Generic Case 3 search over all coarse OPT cardinality profiles.
         if nS3 + nS4 + nS5 != machine_count:
             continue
 
@@ -213,6 +235,8 @@ def iter_mtf_profiles(
     job_count = opt_profile.total_job_count
 
     if acceleration_case is AccelerationCase.CASE_1:
+        # Case 1: long jobs pair cleanly, so the profile search is over the tail
+        # blocks once the number of 2-job machines is determined by nS3.
         pair_total = nS3 // 2
         if 2 * pair_total != nS3:
             return
@@ -235,6 +259,8 @@ def iter_mtf_profiles(
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
+        # Case 2: same broad shape as Case 1, but additional inequalities limit
+        # F3 and M5 through the case-specific counting arguments.
         pair_total = nS3 // 2
         if 2 * pair_total != nS3:
             return
@@ -261,6 +287,8 @@ def iter_mtf_profiles(
         return
 
     if acceleration_case is AccelerationCase.CASE_3_1:
+        # Case 3-1 delegates to the common Case 3 generator with the "ell is not
+        # an F2 fallback job" switch.
         yield from _iter_case_3_profiles(
             machine_count,
             ell,
@@ -271,6 +299,7 @@ def iter_mtf_profiles(
         )
         return
 
+    # Case 3-2 delegates to the same helper with the opposite switch.
     yield from _iter_case_3_profiles(
         machine_count,
         ell,
@@ -295,6 +324,7 @@ def _iter_case_3_profiles(
     # whether the code follows the paper's intended admissible profile region.
     f3_upper = max(0, (3 * machine_count - 22) // 12)
     for a in range(machine_count + 1):
+        # `a` is the total size of the F1/R2 prefix in terms of machines.
         for nF1 in range(a + 1):
             nR2 = a - nF1
             if allow_case_32:

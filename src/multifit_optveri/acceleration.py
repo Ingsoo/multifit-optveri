@@ -15,11 +15,20 @@ PAPER_MACHINE_RANGE = range(8, 13)
 
 @dataclass(frozen=True)
 class PnRange:
+    """Closed interval used by the implementation to represent a p_n case range.
+
+    Note that the paper sometimes states strict upper bounds; when those bounds
+    are used in the optimization model they must later be encoded as non-strict
+    inequalities because Gurobi does not support strict constraints.
+    """
+
     lower: Fraction | None = None
     upper: Fraction | None = None
 
     @property
     def text(self) -> str:
+        """Human-readable rendering of the interval, mainly for plans/logs."""
+
         if self.lower is None and self.upper is None:
             return "unrestricted"
         if self.lower is not None and self.upper is None:
@@ -30,6 +39,8 @@ class PnRange:
 
 
 class AccelerationCase(str, Enum):
+    """Top-level acceleration branches from Section 5."""
+
     BASE = "base"
     CASE_1 = "case_1"
     CASE_2 = "case_2"
@@ -50,10 +61,14 @@ class AccelerationCase(str, Enum):
 
     @property
     def uses_paper_acceleration(self) -> bool:
+        """Whether this branch should trigger Section 5 cuts."""
+
         return self is not AccelerationCase.BASE
 
 
 def parse_acceleration_case(value: str | AccelerationCase) -> AccelerationCase:
+    """Parse CLI/config input into a normalized acceleration case enum."""
+
     if isinstance(value, AccelerationCase):
         return value
 
