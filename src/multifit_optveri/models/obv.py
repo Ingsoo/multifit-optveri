@@ -109,9 +109,7 @@ def _as_float(value: Fraction) -> float:
     return float(value.numerator / value.denominator)
 
 
-def _common_processing_time_lower_bound(
-    machine_count: int, target_ratio: Fraction
-) -> Fraction:
+def _common_processing_time_lower_bound(machine_count: int, target_ratio: Fraction) -> Fraction:
     """Return the generic lower bound on p_n used before case-specific cuts."""
 
     # Common lower bound on p_n used already in the base reasoning and then
@@ -124,9 +122,7 @@ def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
 
     # This combines the generic lower bound with the case-specific p_n interval.
     # If the paper/code comparison on variable domains fails, start here.
-    lower_bound = _common_processing_time_lower_bound(
-        case.machine_count, case.target_ratio
-    )
+    lower_bound = _common_processing_time_lower_bound(case.machine_count, case.target_ratio)
     if case.acceleration_case is not AccelerationCase.BASE:
         pn_lower_bound = case.acceleration_case.pn_range.lower
         if pn_lower_bound is not None:
@@ -134,9 +130,7 @@ def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
     return lower_bound
 
 
-def _processing_time_upper_bound(
-    case: ExperimentCase, job_index: int, lower_bound: Fraction
-) -> Fraction:
+def _processing_time_upper_bound(case: ExperimentCase, job_index: int, lower_bound: Fraction) -> Fraction:
     """Return the variable upper bound used for p_j.
 
     This is intentionally stronger than the bare formulation because the old
@@ -151,10 +145,7 @@ def _processing_time_upper_bound(
         upper_bound,
         Fraction(1, 1) - (OPT_JOB_CARDINALITY_LOWER_BOUND - 1) * lower_bound,
     )
-    if (
-        job_index == case.job_count
-        and case.acceleration_case is not AccelerationCase.BASE
-    ):
+    if job_index == case.job_count and case.acceleration_case is not AccelerationCase.BASE:
         pn_upper_bound = case.acceleration_case.pn_range.upper
         if pn_upper_bound is not None:
             upper_bound = min(upper_bound, pn_upper_bound)
@@ -170,9 +161,7 @@ def _opt_cardinality_upper_bound(lower_bound: Fraction) -> int:
 def _mtf_cardinality_upper_bound(machine_count: int, target_ratio: Fraction) -> int:
     """Compute the global upper bound on MTF machine cardinality."""
 
-    expression = (Fraction(machine_count, 1) - target_ratio) / (
-        machine_count * (target_ratio - 1)
-    )
+    expression = (Fraction(machine_count, 1) - target_ratio) / (machine_count * (target_ratio - 1))
     return ceil_fraction(expression) - 1
 
 
@@ -183,14 +172,14 @@ def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
     # rho = 20/17 and m in {8, ..., 12}. If you run outside that range, you are
     # no longer checking the same statement as the paper.
     if case.target_ratio != PAPER_TARGET_RATIO:
+        target_text = f"{PAPER_TARGET_RATIO.numerator}/" f"{PAPER_TARGET_RATIO.denominator}"
         raise ValueError(
-            f"Acceleration case '{case.acceleration_case.value}' is only implemented for "
-            f"target={PAPER_TARGET_RATIO.numerator}/{PAPER_TARGET_RATIO.denominator}."
+            f"Acceleration case '{case.acceleration_case.value}' " f"is only implemented for target={target_text}."
         )
     if case.machine_count not in PAPER_MACHINE_RANGE:
+        machine_range_text = f"{PAPER_MACHINE_RANGE.start}.." f"{PAPER_MACHINE_RANGE.stop - 1}"
         raise ValueError(
-            f"Acceleration case '{case.acceleration_case.value}' is only implemented for "
-            f"m in {PAPER_MACHINE_RANGE.start}..{PAPER_MACHINE_RANGE.stop - 1}."
+            f"Acceleration case '{case.acceleration_case.value}' " f"is only implemented for m in {machine_range_text}."
         )
 
 
@@ -234,16 +223,12 @@ def _apply_paper_acceleration_constraints(
 
     pn_range = case.acceleration_case.pn_range
     if pn_range.lower is not None:
-        model.addConstr(
-            p[case.job_count] >= _as_float(pn_range.lower), name="case_pn_lb"
-        )
+        model.addConstr(p[case.job_count] >= _as_float(pn_range.lower), name="case_pn_lb")
     if pn_range.upper is not None:
         # Important paper/code mismatch to remember during comparison:
         # the paper states strict upper bounds, but the model can only encode
         # them as non-strict <= constraints.
-        model.addConstr(
-            p[case.job_count] <= _as_float(pn_range.upper), name="case_pn_ub"
-        )
+        model.addConstr(p[case.job_count] <= _as_float(pn_range.upper), name="case_pn_ub")
 
 
 def _apply_profile_cardinality_constraints(
@@ -270,25 +255,19 @@ def _apply_profile_cardinality_constraints(
         for job_index in range(1, case.job_count):
             if job_index < case.ell:
                 model.addConstr(
-                    p[job_index]
-                    >= Fraction(3, 17).numerator / Fraction(3, 17).denominator
-                    + p[case.job_count],
+                    p[job_index] >= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
                     name=f"processing_time_in_D[{job_index}]",
                 )
             else:
                 model.addConstr(
-                    p[job_index]
-                    <= Fraction(3, 17).numerator / Fraction(3, 17).denominator
-                    + p[case.job_count],
+                    p[job_index] <= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
                     name=f"processing_time_in_D_prime[{job_index}]",
                 )
 
     if case.opt_profile is not None:
         # Fix the number of jobs on each OPT machine according to the chosen
         # coarse OPT profile branch.
-        for machine_index, cardinality in enumerate(
-            case.opt_profile.machine_cardinalities, start=1
-        ):
+        for machine_index, cardinality in enumerate(case.opt_profile.machine_cardinalities, start=1):
             model.addConstr(
                 gp.quicksum(x[machine_index, j] for j in jobs) == cardinality,
                 name=f"opt_profile_cardinality[{machine_index}]",
@@ -298,9 +277,7 @@ def _apply_profile_cardinality_constraints(
         # Fix the number of jobs on each MTF machine according to the chosen
         # coarse MTF profile branch, then refine with profile-specific cuts.
         layout = _build_mtf_profile_layout(case)
-        for machine_index, cardinality in enumerate(
-            case.mtf_profile.machine_cardinalities, start=1
-        ):
+        for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
             model.addConstr(
                 gp.quicksum(q[machine_index, j] for j in truncated_jobs) == cardinality,
                 name=f"mtf_profile_cardinality[{machine_index}]",
@@ -428,10 +405,7 @@ def _apply_mtf_base_profile_constraints(
         # R2 machines are regular 2-machines: the last such machine plus job n
         # must already be tight enough to explain why n does not fit later.
         model.addConstr(
-            p[layout.e2 + 2 * profile.nR2 - 2]
-            + p[layout.e2 + 2 * profile.nR2 - 1]
-            + p[case.job_count]
-            >= target,
+            p[layout.e2 + 2 * profile.nR2 - 2] + p[layout.e2 + 2 * profile.nR2 - 1] + p[case.job_count] >= target,
             name=f"R2_valid_constr[{layout.r2_machines[-1]}]",
         )
         if profile.nF1 == 0:
@@ -447,10 +421,7 @@ def _apply_mtf_base_profile_constraints(
             )
             model.addConstrs(
                 (
-                    gp.quicksum(
-                        x[machine_prime, job_index]
-                        for machine_prime in range(1, machine_index + 1)
-                    )
+                    gp.quicksum(x[machine_prime, job_index] for machine_prime in range(1, machine_index + 1))
                     >= x[machine_index, job_index + 1]
                     for machine_index in machines
                 ),
@@ -486,10 +457,7 @@ def _apply_mtf_base_profile_constraints(
             )
             model.addConstrs(
                 (
-                    gp.quicksum(
-                        x[machine_prime, job_index]
-                        for machine_prime in range(1, machine_index + 1)
-                    )
+                    gp.quicksum(x[machine_prime, job_index] for machine_prime in range(1, machine_index + 1))
                     >= x[machine_index, job_index + 1]
                     for machine_index in machines
                 ),
@@ -499,8 +467,7 @@ def _apply_mtf_base_profile_constraints(
     if layout.f3_machines:
         # F3 machines are exactly the place where 4 scheduled jobs appear before n.
         model.addConstr(
-            p[layout.e4 - 3] + p[layout.e4 - 2] + p[layout.e4 - 1] + p[layout.e4]
-            >= target,
+            p[layout.e4 - 3] + p[layout.e4 - 2] + p[layout.e4 - 1] + p[layout.e4] >= target,
             name=f"F3_valid_constr[{layout.f3_machines[-1]}]",
         )
 
@@ -526,10 +493,7 @@ def _apply_mtf_base_profile_constraints(
             )
             model.addConstrs(
                 (
-                    gp.quicksum(
-                        x[machine_prime, job_index]
-                        for machine_prime in range(1, machine_index + 1)
-                    )
+                    gp.quicksum(x[machine_prime, job_index] for machine_prime in range(1, machine_index + 1))
                     >= x[machine_index, job_index + 1]
                     for machine_index in machines
                 ),
@@ -540,8 +504,7 @@ def _apply_mtf_base_profile_constraints(
         # The profile object already says these are 5-job MTF machines, so make
         # the exact cardinality explicit at the model level.
         model.addConstr(
-            gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
-            == 5,
+            gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) == 5,
             name=f"M5_cardinality_constr[{machine_index}]",
         )
 
@@ -571,14 +534,11 @@ def _apply_global_valid_inequalities(
     # checking "paper exact" vs "implementation strengthened", audit this block.
     lower_bound = _processing_time_lower_bound(case)
     opt_cardinality_upper = _opt_cardinality_upper_bound(lower_bound)
-    mtf_cardinality_upper = _mtf_cardinality_upper_bound(
-        case.machine_count, case.target_ratio
-    )
+    mtf_cardinality_upper = _mtf_cardinality_upper_bound(case.machine_count, case.target_ratio)
 
     model.addConstrs(
         (
-            gp.quicksum(x[machine_index, job_index] for job_index in jobs)
-            >= OPT_JOB_CARDINALITY_LOWER_BOUND
+            gp.quicksum(x[machine_index, job_index] for job_index in jobs) >= OPT_JOB_CARDINALITY_LOWER_BOUND
             for machine_index in machines
         ),
         name="opt_cardinality_lb",
@@ -587,8 +547,7 @@ def _apply_global_valid_inequalities(
     # bound that helps OPT-side pruning.
     model.addConstrs(
         (
-            gp.quicksum(x[machine_index, job_index] for job_index in jobs)
-            <= opt_cardinality_upper
+            gp.quicksum(x[machine_index, job_index] for job_index in jobs) <= opt_cardinality_upper
             for machine_index in machines
         ),
         name="opt_cardinality_ub",
@@ -599,10 +558,7 @@ def _apply_global_valid_inequalities(
         quo = case.job_count // case.machine_count
         first_small_job = case.job_count - rem * (quo + 1) + 1
         model.addConstr(
-            gp.quicksum(
-                p[job_index] for job_index in range(first_small_job, case.job_count + 1)
-            )
-            <= rem,
+            gp.quicksum(p[job_index] for job_index in range(first_small_job, case.job_count + 1)) <= rem,
             name="opt_smallest_jobs_sum",
         )
 
@@ -618,33 +574,24 @@ def _apply_global_valid_inequalities(
     # Machine 1 starts with job 1, and all other partial sums start at zero.
     model.addConstr(s[1, 1] == p[1], name="mtf_init_fixed[1]")
     model.addConstrs(
-        (
-            s[machine_index, 1] == 0
-            for machine_index in range(2, case.machine_count + 1)
-        ),
+        (s[machine_index, 1] == 0 for machine_index in range(2, case.machine_count + 1)),
         name="mtf_init_fixed",
     )
 
     model.addConstrs(
-        (
-            2
-            <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
-            for machine_index in machines
-        ),
+        (2 <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) for machine_index in machines),
         name="mtf_cardinality_lb",
     )
     model.addConstrs(
         (
-            gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
-            <= mtf_cardinality_upper
+            gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) <= mtf_cardinality_upper
             for machine_index in machines
         ),
         name="mtf_cardinality_ub",
     )
     model.addConstrs(
         (
-            gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines)
-            + p[job_index]
+            gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
             == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
             for job_index in range(2, case.job_count)
         ),
@@ -733,10 +680,7 @@ def _apply_r5_constraints(
         )
         model.addConstrs(
             (
-                gp.quicksum(
-                    x[machine_prime, job_index]
-                    for machine_prime in range(1, machine_index + 1)
-                )
+                gp.quicksum(x[machine_prime, job_index] for machine_prime in range(1, machine_index + 1))
                 >= x[machine_index, job_index + 1]
                 for machine_index in machines
             ),
@@ -800,10 +744,7 @@ def _apply_case_profile_constraints(
             name="case1_stronger_proc_time_in_D",
         )
         model.addConstrs(
-            (
-                x[machine_index, machine_index] == 1
-                for machine_index in machine_ids[: ell - 1]
-            ),
+            (x[machine_index, machine_index] == 1 for machine_index in machine_ids[: ell - 1]),
             name="case1_OPT_ell_assignment_constr",
         )
         for machine_index in layout.r2_machines:
@@ -833,15 +774,9 @@ def _apply_case_profile_constraints(
         if layout.r3_machines:
             # The first R3 machine is fixed to the first three short jobs.
             first_r3 = layout.r3_machines[0]
-            model.addConstr(
-                q[first_r3, ell] == 1, name=f"case1_R3_consec_1[{first_r3}]"
-            )
-            model.addConstr(
-                q[first_r3, ell + 1] == 1, name=f"case1_R3_consec_2[{first_r3}]"
-            )
-            model.addConstr(
-                q[first_r3, ell + 2] == 1, name=f"case1_R3_consec_3[{first_r3}]"
-            )
+            model.addConstr(q[first_r3, ell] == 1, name=f"case1_R3_consec_1[{first_r3}]")
+            model.addConstr(q[first_r3, ell + 1] == 1, name=f"case1_R3_consec_2[{first_r3}]")
+            model.addConstr(q[first_r3, ell + 2] == 1, name=f"case1_R3_consec_3[{first_r3}]")
         return
 
     if case.acceleration_case is AccelerationCase.CASE_2:
@@ -865,8 +800,7 @@ def _apply_case_profile_constraints(
             # Even ell corresponds to the paper's "one machine has two long jobs"
             # phenomenon in the OPT profile.
             model.addConstr(
-                gp.quicksum(x[machine_index, ell - 1] for machine_index in s3_machines)
-                == 1,
+                gp.quicksum(x[machine_index, ell - 1] for machine_index in s3_machines) == 1,
                 name="case2_even_ell_two_long_machine",
             )
         for machine_index in layout.r2_machines:
@@ -899,12 +833,8 @@ def _apply_case_profile_constraints(
             first_r3 = layout.r3_machines[0]
             e3 = case.opt_profile.nS3 + 1
             model.addConstr(q[first_r3, e3] == 1, name=f"case2_R3_consec_1[{first_r3}]")
-            model.addConstr(
-                q[first_r3, e3 + 1] == 1, name=f"case2_R3_consec_2[{first_r3}]"
-            )
-            model.addConstr(
-                q[first_r3, e3 + 2] == 1, name=f"case2_R3_consec_3[{first_r3}]"
-            )
+            model.addConstr(q[first_r3, e3 + 1] == 1, name=f"case2_R3_consec_2[{first_r3}]")
+            model.addConstr(q[first_r3, e3 + 2] == 1, name=f"case2_R3_consec_3[{first_r3}]")
         return
 
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
@@ -933,17 +863,11 @@ def _apply_case_profile_constraints(
         )
 
     model.addConstrs(
-        (
-            q[machine_index, machine_index + profile.nF1 + 1] == 1
-            for machine_index in layout.f1_machines
-        ),
+        (q[machine_index, machine_index + profile.nF1 + 1] == 1 for machine_index in layout.f1_machines),
         name="case34_F1_consec_constrs",
     )
     # After the F1 fallback block, the next diagonal job is also fixed.
-    if (
-        profile.nF1 + 1 <= case.machine_count
-        and 2 * (profile.nF1 + 1) in truncated_jobs
-    ):
+    if profile.nF1 + 1 <= case.machine_count and 2 * (profile.nF1 + 1) in truncated_jobs:
         model.addConstr(
             q[profile.nF1 + 1, 2 * (profile.nF1 + 1)] == 1,
             name="case34_F1_assignment_constr",
@@ -988,16 +912,12 @@ def _apply_case_profile_constraints(
         diag_count = 2 * (profile.nF1 + profile.nR2 + profile.nF2)
         # The whole prefix up through F2 is diagonally anchored in OPT.
         model.addConstrs(
-            (
-                x[machine_index, machine_index] == 1
-                for machine_index in machine_ids[:diag_count]
-            ),
+            (x[machine_index, machine_index] == 1 for machine_index in machine_ids[:diag_count]),
             name="case3_OPT_ell_assignment_constr",
         )
 
         for machine_index in machine_ids[
-            2 * (profile.nF1 + profile.nR2)
-            - 1 : 2 * (profile.nF1 + profile.nR2 + profile.nF2)
+            2 * (profile.nF1 + profile.nR2) - 1 : 2 * (profile.nF1 + profile.nR2 + profile.nF2)
         ]:
             # Machines near the F2 boundary cannot exceed 4 jobs in OPT.
             model.addConstr(
@@ -1005,9 +925,7 @@ def _apply_case_profile_constraints(
                 name=f"case3_always_less_S4_constr[{machine_index}]",
             )
 
-        for machine_index in machine_ids[
-            2 * (profile.nF1 + profile.nR2 + profile.nF2) :
-        ]:
+        for machine_index in machine_ids[2 * (profile.nF1 + profile.nR2 + profile.nF2) :]:
             # Later OPT machines must be 4+ cardinality.
             model.addConstr(
                 gp.quicksum(x[machine_index, job_index] for job_index in jobs) >= 4,
@@ -1020,9 +938,7 @@ def _apply_case_profile_constraints(
         if ell - 3 == 2 * (profile.nF1 + profile.nR2 + profile.nF2):
             # Special sub-branch where ell starts immediately after the pair block.
             next_machine = _machine_after_pair_block(layout)
-            model.addConstr(
-                p[ell] <= case.machine_count / 34, name="case3_ell_proc_time"
-            )
+            model.addConstr(p[ell] <= case.machine_count / 34, name="case3_ell_proc_time")
             model.addConstr(q[next_machine, ell - 2] == 1, name="case3_ell_consec_1")
             model.addConstr(q[next_machine, ell - 1] == 1, name="case3_ell_consec_2")
             model.addConstr(q[next_machine, ell] == 1, name="case3_ell_consec_3")
@@ -1045,18 +961,11 @@ def _apply_case_profile_constraints(
     # OPT is anchored only through the F1/R2 prefix; the rest is constrained by
     # consecutive structure and cardinality restrictions around F2.
     model.addConstrs(
-        (
-            x[machine_index, machine_index] == 1
-            for machine_index in machine_ids[:diag_count]
-        ),
+        (x[machine_index, machine_index] == 1 for machine_index in machine_ids[:diag_count]),
         name="case4_OPT_ell_assignment_constr",
     )
 
-    if (
-        case.machine_count <= diag_count
-        and diag_count >= 1
-        and diag_count + 1 <= case.job_count
-    ):
+    if case.machine_count <= diag_count and diag_count >= 1 and diag_count + 1 <= case.job_count:
         model.addConstr(
             x[diag_count, diag_count + 1] == 1,
             name="case4_first_F2_job_with_R2_last_or_next",
@@ -1066,11 +975,7 @@ def _apply_case_profile_constraints(
             x[1, 1] == 1,
             name="case4_first_F2_job_with_R2_last_or_next",
         )
-    elif (
-        diag_count >= 1
-        and diag_count + 1 <= case.machine_count
-        and diag_count + 1 <= case.job_count
-    ):
+    elif diag_count >= 1 and diag_count + 1 <= case.machine_count and diag_count + 1 <= case.job_count:
         model.addConstr(
             x[diag_count, diag_count + 1] + x[diag_count + 1, diag_count + 1] == 1,
             name="case4_first_F2_job_with_R2_last_or_next",
@@ -1082,9 +987,7 @@ def _apply_case_profile_constraints(
             for machine_index in machines
             for job_index in jobs
             if (
-                2 * (profile.nF1 + profile.nR2)
-                <= machine_index
-                <= 2 * (profile.nF1 + profile.nR2 + profile.nF2) - 1
+                2 * (profile.nF1 + profile.nR2) <= machine_index <= 2 * (profile.nF1 + profile.nR2 + profile.nF2) - 1
                 and 2 * (profile.nF1 + profile.nR2) + 1
                 <= job_index
                 <= 2 * (profile.nF1 + profile.nR2 + profile.nF2) - 1
@@ -1139,10 +1042,7 @@ def _apply_case_profile_constraints(
         )
 
     model.addConstrs(
-        (
-            q[layout.f2_machines[offset], ell + offset] == 1
-            for offset in range(profile.nF2)
-        ),
+        (q[layout.f2_machines[offset], ell + offset] == 1 for offset in range(profile.nF2)),
         name="case4_ell_in_F2_consec",
     )
     # In Case 3-2, ell and the following fallback jobs march consecutively
@@ -1152,19 +1052,13 @@ def _apply_case_profile_constraints(
     if ell == 2 * (profile.nF1 + profile.nR2 + profile.nF2) + 2:
         # One possible alignment of ell relative to the first post-F2 machine.
         model.addConstr(q[next_machine, ell - 1] == 1, name="case4_ell_consec_1")
-        model.addConstr(
-            q[next_machine, ell + profile.nF2] == 1, name="case4_ell_consec_2"
-        )
-        model.addConstr(
-            q[next_machine, ell + profile.nF2 + 1] == 1, name="case4_ell_consec_3"
-        )
+        model.addConstr(q[next_machine, ell + profile.nF2] == 1, name="case4_ell_consec_2")
+        model.addConstr(q[next_machine, ell + profile.nF2 + 1] == 1, name="case4_ell_consec_3")
     elif ell == 2 * (profile.nF1 + profile.nR2 + profile.nF2) + 3:
         # The other possible alignment of ell relative to the first post-F2 machine.
         model.addConstr(q[next_machine, ell - 2] == 1, name="case4_ell_consec_1")
         model.addConstr(q[next_machine, ell - 1] == 1, name="case4_ell_consec_2")
-        model.addConstr(
-            q[next_machine, ell + profile.nF2] == 1, name="case4_ell_consec_3"
-        )
+        model.addConstr(q[next_machine, ell + profile.nF2] == 1, name="case4_ell_consec_3")
 
     _apply_r5_constraints(
         model,
@@ -1191,9 +1085,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         case.job_count,
         include_target_lower_bound=case.enforce_target_lower_bound,
         acceleration_case=case.acceleration_case,
-        include_profile_cardinality_constraints=(
-            case.mtf_profile is not None or case.opt_profile is not None
-        ),
+        include_profile_cardinality_constraints=(case.mtf_profile is not None or case.opt_profile is not None),
     )
 
     model = gp.Model(f"obv_{case.case_id}")
@@ -1221,11 +1113,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     p = {
         job_index: model.addVar(
             lb=_as_float(processing_time_lower_bound),
-            ub=_as_float(
-                _processing_time_upper_bound(
-                    case, job_index, processing_time_lower_bound
-                )
-            ),
+            ub=_as_float(_processing_time_upper_bound(case, job_index, processing_time_lower_bound)),
             vtype=GRB.CONTINUOUS,
             name=f"p[{job_index}]",
         )
@@ -1281,9 +1169,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         (
             # If job j is not assigned to any machine up to i, then machine i
             # must already be too full to receive it.
-            s[i, j - 1] + p[j]
-            >= target
-            * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
+            s[i, j - 1] + p[j] >= target * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
             for i in machines
             for j in range(2, case.job_count)
         ),
@@ -1318,9 +1204,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     # Section 5 common case split conditions.
     if case.acceleration_case is not AccelerationCase.BASE:
         _validate_paper_acceleration_case(case)
-        _apply_paper_acceleration_constraints(
-            model, case, p, x, q, jobs, truncated_jobs, machines
-        )
+        _apply_paper_acceleration_constraints(model, case, p, x, q, jobs, truncated_jobs, machines)
 
     # Section 5 profile- and branch-specific structural constraints.
     if case.mtf_profile is not None or case.opt_profile is not None:

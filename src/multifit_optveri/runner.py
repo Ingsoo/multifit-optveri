@@ -4,6 +4,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
 import csv
 import json
 
@@ -11,10 +12,32 @@ from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.math_utils import format_ratio, format_scaled_rational_values
 from multifit_optveri.models.obv import BuiltObvModel, build_obv_model
 
+if TYPE_CHECKING:
+    from gurobipy import Model as GurobiModel
+else:
+    GurobiModel = Any
+
 try:
     from gurobipy import GRB
 except ImportError:  # pragma: no cover - exercised only when Gurobi is missing
     GRB = None
+
+
+class _ConstraintCountModel(Protocol):
+    NumConstrs: int
+    NumQConstrs: int
+    NumGenConstrs: int
+
+
+class _SolutionVar(Protocol):
+    X: float
+
+
+class _OptimalValueModel(Protocol):
+    Status: int
+
+    def getVarByName(self, name: str) -> _SolutionVar | None:
+        ...
 
 
 @dataclass(frozen=True)
@@ -65,13 +88,8 @@ def _status_name(status_code: int) -> str:
     }.get(status_code, str(status_code))
 
 
-def _model_constraint_total(model: object) -> int | None:
-    linear = int(model.NumConstrs) if hasattr(model, "NumConstrs") else None
-    quadratic = int(model.NumQConstrs) if hasattr(model, "NumQConstrs") else 0
-    general = int(model.NumGenConstrs) if hasattr(model, "NumGenConstrs") else 0
-    if linear is None:
-        return None
-    return linear + quadratic + general
+def _model_constraint_total(model: _ConstraintCountModel) -> int:
+    return int(model.NumConstrs) + int(model.NumQConstrs) + int(model.NumGenConstrs)
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -136,12 +154,8 @@ def _result_summary_payload(result: SolveResult) -> dict[str, object]:
         "job_count": result.job_count,
         "acceleration_case": result.acceleration_case,
         "ell": result.ell if result.ell is not None else "",
-        "mtf-profile-(f1_r2_f2_r3_f3_m4_m5)": (
-            result.mtf_profile if result.mtf_profile is not None else ""
-        ),
-        "opt-profile-(e3_e4_e5)": (
-            result.opt_profile if result.opt_profile is not None else ""
-        ),
+        "mtf-profile-(f1_r2_f2_r3_f3_m4_m5)": (result.mtf_profile if result.mtf_profile is not None else ""),
+        "opt-profile-(e3_e4_e5)": (result.opt_profile if result.opt_profile is not None else ""),
         "status": result.status,
         "objective_value": result.objective_value if result.objective_value is not None else "",
         "objective_bound": result.objective_bound if result.objective_bound is not None else "",
@@ -162,10 +176,7 @@ def _format_mtf_profile(case: ExperimentCase) -> str | None:
     if case.mtf_profile is None:
         return None
     profile = case.mtf_profile
-    return (
-        f"({profile.nF1},{profile.nR2},{profile.nF2},{profile.nR3},"
-        f"{profile.nF3},{profile.nR4},{profile.nM5})"
-    )
+    return f"({profile.nF1},{profile.nR2},{profile.nF2},{profile.nR3}," f"{profile.nF3},{profile.nR4},{profile.nM5})"
 
 
 def _format_opt_profile(case: ExperimentCase) -> str | None:
@@ -175,7 +186,9 @@ def _format_opt_profile(case: ExperimentCase) -> str | None:
     return f"({profile.nS3},{profile.nS4},{profile.nS5})"
 
 
-def _extract_optimal_p_values_desc(model, job_count: int) -> str | None:
+def _extract_optimal_p_values_desc(
+    model: _OptimalValueModel, job_count: int
+) -> str | None:
     if GRB is None or model.Status != GRB.OPTIMAL:
         return None
 
@@ -266,9 +279,7 @@ class RunRecorder:
     def _write_overview(self) -> None:
         status_counts = Counter(result.status for result in self.results)
         case_counts = Counter(result.acceleration_case for result in self.results)
-        total_runtime = sum(
-            result.runtime_seconds for result in self.results if result.runtime_seconds is not None
-        )
+        total_runtime = sum(result.runtime_seconds for result in self.results if result.runtime_seconds is not None)
         _write_json(
             self.artifacts.overview_json_path,
             {
@@ -286,7 +297,7 @@ class RunRecorder:
 
 def run_case(case: ExperimentCase) -> SolveResult:
     built_model: BuiltObvModel = build_obv_model(case)
-    model = built_model.model
+    model: GurobiModel = built_model.model
 
     case.output_dir.mkdir(parents=True, exist_ok=True)
     if case.write_lp:
@@ -326,10 +337,10 @@ def run_case(case: ExperimentCase) -> SolveResult:
     }
     summary_payload["dimensions"] = {
         "total_variables": int(model.NumVars) if hasattr(model, "NumVars") else built_model.dimensions.total_variables,
-        "total_constraints": _model_constraint_total(model) or built_model.dimensions.total_constraints,
-        "linear_constraints": int(model.NumConstrs) if hasattr(model, "NumConstrs") else None,
-        "quadratic_constraints": int(model.NumQConstrs) if hasattr(model, "NumQConstrs") else 0,
-        "general_constraints": int(model.NumGenConstrs) if hasattr(model, "NumGenConstrs") else 0,
+        "total_constraints": _model_constraint_total(model),
+        "linear_constraints": int(model.NumConstrs),
+        "quadratic_constraints": int(model.NumQConstrs),
+        "general_constraints": int(model.NumGenConstrs),
         "spec_total_variables": built_model.dimensions.total_variables,
         "spec_total_constraints": built_model.dimensions.total_constraints,
         "variable_counts": built_model.dimensions.variable_counts,
