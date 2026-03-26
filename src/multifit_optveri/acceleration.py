@@ -29,13 +29,19 @@ class PnRange:
     def text(self) -> str:
         """Human-readable rendering of the interval, mainly for plans/logs."""
 
-        if self.lower is None and self.upper is None:
+        lower = self.lower
+        upper = self.upper
+
+        if lower is None and upper is None:
             return "unrestricted"
-        if self.lower is not None and self.upper is None:
-            return f"p_n >= {format_ratio(self.lower)}"
-        if self.lower is None and self.upper is not None:
-            return f"p_n <= {format_ratio(self.upper)}"
-        return f"{format_ratio(self.lower)} <= p_n <= {format_ratio(self.upper)}"
+        if lower is not None and upper is None:
+            return f"p_n >= {format_ratio(lower)}"
+        if lower is None and upper is not None:
+            return f"p_n <= {format_ratio(upper)}"
+
+        assert lower is not None
+        assert upper is not None
+        return f"{format_ratio(lower)} <= p_n <= {format_ratio(upper)}"
 
 
 class AccelerationCase(str, Enum):

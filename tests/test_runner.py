@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
+from multifit_optveri.branching import MtfProfile, OptProfile
 from multifit_optveri.config import SolverConfig
 from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.math_utils import parse_ratio
@@ -119,8 +120,8 @@ class RunnerTests(unittest.TestCase):
             job_count=24,
             acceleration_case=AccelerationCase.CASE_2,
             ell=10,
-            mtf_profile=SimpleNamespace(nF1=0, nR2=4, nF2=0, nR3=1, nF3=0, nR4=3, nM5=0),
-            opt_profile=SimpleNamespace(nS3=8, nS4=0, nS5=0),
+            mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0),
+            opt_profile=OptProfile(8, 0, 0),
             target_ratio=parse_ratio("20/17"),
             output_root=Path("results"),
             write_lp=False,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, cast
 import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
@@ -12,8 +13,21 @@ from multifit_optveri.models import obv
 from multifit_optveri.models.obv import build_obv_model
 from multifit_optveri.models.spec import derive_obv_dimensions
 
+if TYPE_CHECKING:
+    from gurobipy import Model as GurobiModel
+    from gurobipy import Var as GurobiVar
+else:
+    GurobiModel = Any
+    GurobiVar = Any
 
-def _constraint_total(model: object) -> int:
+
+class _ConstraintCountModel(Protocol):
+    NumConstrs: int
+    NumQConstrs: int
+    NumGenConstrs: int
+
+
+def _constraint_total(model: _ConstraintCountModel) -> int:
     return int(model.NumConstrs) + int(model.NumQConstrs) + int(model.NumGenConstrs)
 
 
@@ -56,10 +70,11 @@ class ObvBuildTests(unittest.TestCase):
         )
 
         try:
+            model: GurobiModel = built.model
             self.assertEqual(built.dimensions, expected)
-            self.assertEqual(built.model.NumVars, expected.total_variables)
-            self.assertEqual(_constraint_total(built.model), expected.total_constraints)
-            self.assertEqual(built.model.ModelSense, obv.GRB.MAXIMIZE)
+            self.assertEqual(model.NumVars, expected.total_variables)
+            self.assertEqual(_constraint_total(model), expected.total_constraints)
+            self.assertEqual(model.ModelSense, obv.GRB.MAXIMIZE)
         finally:
             built.model.dispose()
 
@@ -81,9 +96,10 @@ class ObvBuildTests(unittest.TestCase):
         )
 
         try:
-            self.assertEqual(built.model.NumVars, base_expected.total_variables)
-            self.assertGreater(_constraint_total(built.model), base_expected.total_constraints)
-            pn_var = built.model.getVarByName("p[24]")
+            model: GurobiModel = built.model
+            self.assertEqual(model.NumVars, base_expected.total_variables)
+            self.assertGreater(_constraint_total(model), base_expected.total_constraints)
+            pn_var = cast(GurobiVar | None, model.getVarByName("p[24]"))
             self.assertIsNotNone(pn_var)
             self.assertAlmostEqual(pn_var.LB, float(Fraction(7, 34)))
             self.assertAlmostEqual(pn_var.UB, float(Fraction(11, 51)))
