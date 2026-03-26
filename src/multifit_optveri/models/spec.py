@@ -4,6 +4,10 @@ from dataclasses import dataclass
 
 from multifit_optveri.acceleration import AccelerationCase
 
+# This file is only a coarse dimension/spec counter for the generated model.
+# It is useful for sanity-checking Section 4 counts, but it is NOT a full proof
+# that the implemented model equals the paper: many case-specific structural
+# constraints in `models/obv.py` are more detailed than the counts tracked here.
 
 @dataclass(frozen=True)
 class ObvModelDimensions:
@@ -31,6 +35,9 @@ def derive_obv_dimensions(
     acceleration_case: AccelerationCase = AccelerationCase.BASE,
     include_profile_cardinality_constraints: bool = False,
 ) -> ObvModelDimensions:
+    # Use this when you want to compare "how many" major families of variables
+    # and constraints exist. For exact paper/code alignment, you still need to
+    # inspect the named constraints added in `models/obv.py`.
     if machine_count <= 0:
         raise ValueError("machine_count must be positive.")
     if job_count <= 1:

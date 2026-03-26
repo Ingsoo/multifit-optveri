@@ -14,6 +14,14 @@ from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.math_utils import ceil_fraction
 from multifit_optveri.models.spec import ObvModelDimensions, derive_obv_dimensions
 
+# Paper/code comparison guide for this file:
+# - Section 4 base MIQP lives in `build_obv_model`.
+# - Section 5 common acceleration cuts live in `_apply_paper_acceleration_constraints`.
+# - Section 5 branch-specific structure lives in `_apply_profile_cardinality_constraints`,
+#   `_apply_mtf_base_profile_constraints`, and `_apply_case_profile_constraints`.
+# - Some strengthenings below come from the older implementation, not just the prose
+#   of the paper. Those are the first places to audit if you want "paper exactness".
+
 if TYPE_CHECKING:
     import gurobipy as gp
     from gurobipy import GRB
@@ -81,10 +89,14 @@ def _as_float(value: Fraction) -> float:
 def _common_processing_time_lower_bound(
     machine_count: int, target_ratio: Fraction
 ) -> Fraction:
+    # Common lower bound on p_n used already in the base reasoning and then
+    # tightened further by Section 5's case split.
     return (target_ratio - 1) * machine_count / (machine_count - 1)
 
 
 def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
+    # This combines the generic lower bound with the case-specific p_n interval.
+    # If the paper/code comparison on variable domains fails, start here.
     lower_bound = _common_processing_time_lower_bound(
         case.machine_count, case.target_ratio
     )
@@ -98,6 +110,9 @@ def _processing_time_lower_bound(case: ExperimentCase) -> Fraction:
 def _processing_time_upper_bound(
     case: ExperimentCase, job_index: int, lower_bound: Fraction
 ) -> Fraction:
+    # These bounds are stronger than the pure mathematical formulation and were
+    # carried over from the earlier implementation to help presolve. They are an
+    # important "implementation choice vs paper text" checkpoint.
     upper_bound = Fraction(1, ((job_index - 1) // case.machine_count) + 1)
     upper_bound = min(
         upper_bound,
@@ -125,6 +140,9 @@ def _mtf_cardinality_upper_bound(machine_count: int, target_ratio: Fraction) -> 
 
 
 def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
+    # Section 5 in the current code is only claimed for the paper setting
+    # rho = 20/17 and m in {8, ..., 12}. If you run outside that range, you are
+    # no longer checking the same statement as the paper.
     if case.target_ratio != PAPER_TARGET_RATIO:
         raise ValueError(
             f"Acceleration case '{case.acceleration_case.value}' is only implemented for "
@@ -147,6 +165,9 @@ def _apply_paper_acceleration_constraints(
     truncated_jobs: range,
     machines: range,
 ) -> None:
+    # These are the common Section 5 conditions that apply before any profile-
+    # specific reasoning: common p_n lower bound, cardinality limits, and the
+    # top-level case interval on p_n.
     common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
 
     model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
@@ -172,7 +193,9 @@ def _apply_paper_acceleration_constraints(
             p[case.job_count] >= _as_float(pn_range.lower), name="case_pn_lb"
         )
     if pn_range.upper is not None:
-        # The paper uses strict upper bounds, but Gurobi only supports non-strict inequalities.
+        # Important paper/code mismatch to remember during comparison:
+        # the paper states strict upper bounds, but the model can only encode
+        # them as non-strict <= constraints.
         model.addConstr(
             p[case.job_count] <= _as_float(pn_range.upper), name="case_pn_ub"
         )
@@ -189,6 +212,9 @@ def _apply_profile_cardinality_constraints(
     machines: range,
     target: float,
 ) -> None:
+    # This function ties the outer branching objects (ell, OPT profile, MTF profile)
+    # to actual model constraints. If the iterator families match the paper but the
+    # resulting model still differs, this is the next file section to inspect.
     layout: MtfProfileLayout | None = None
 
     if case.ell is not None:
@@ -257,6 +283,10 @@ def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
     if case.mtf_profile is None:
         raise ValueError("MTF profile layout requires case.mtf_profile.")
 
+    # This converts the abstract tuple profile into the paper's consecutive
+    # machine blocks F1, R2, F2, R3, F3, R4, M5 and their derived indices
+    # e2/e3/e4 and t2/t3/t4. If any of these offsets are wrong, most of the
+    # Section 5 structural constraints become shifted.
     machine_ids = list(range(1, case.machine_count + 1))
     profile = case.mtf_profile
     cursor = 0
@@ -310,6 +340,8 @@ def _apply_mtf_base_profile_constraints(
     target: float,
     layout: MtfProfileLayout,
 ) -> None:
+    # These are the generic per-profile MTF structural consequences used across
+    # cases once a concrete MTF profile is fixed.
     profile = case.mtf_profile
     if profile is None:
         return
@@ -454,6 +486,10 @@ def _apply_global_valid_inequalities(
     machines: range,
     target: float,
 ) -> None:
+    # These are global strengthenings used regardless of the case split.
+    # Some come directly from the paper's valid inequalities, while others were
+    # retained from the earlier implementation to speed up solving. If you are
+    # checking "paper exact" vs "implementation strengthened", audit this block.
     lower_bound = _processing_time_lower_bound(case)
     opt_cardinality_upper = _opt_cardinality_upper_bound(lower_bound)
     mtf_cardinality_upper = _mtf_cardinality_upper_bound(
@@ -540,6 +576,8 @@ def _apply_global_valid_inequalities(
 def _build_opt_machine_groups(
     case: ExperimentCase, machines: range
 ) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    # Helper used by case-specific Section 5 constraints to interpret the OPT
+    # profile as consecutive 3-job / 4-job / 5-job machine groups.
     if case.opt_profile is None:
         return (), (), ()
 
@@ -575,6 +613,7 @@ def _apply_r5_constraints(
     e4: int,
     t4: int,
 ) -> None:
+    # Shared helper for the Case 3 branches when 5-job MTF machines are present.
     profile = case.mtf_profile
     if profile is None or not layout.m5_machines:
         return
@@ -627,6 +666,10 @@ def _apply_case_profile_constraints(
     target: float,
     layout: MtfProfileLayout,
 ) -> None:
+    # This is the main Section 5 branch-specific encoding. Compare its four big
+    # branches with the paper's Case 1, Case 2, Case 3-1, and Case 3-2 results.
+    # If you suspect a mismatch with the paper, this is usually the first place
+    # to inspect after checking the iterators in `branching.py`.
     if case.opt_profile is None or case.mtf_profile is None or case.ell is None:
         return
 
@@ -1001,6 +1044,8 @@ def _apply_case_profile_constraints(
 def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     _require_gurobi()
 
+    # Coarse spec counts used for sanity checks. Useful, but not a substitute
+    # for auditing the actual named constraints below.
     dimensions = derive_obv_dimensions(
         case.machine_count,
         case.job_count,
@@ -1029,6 +1074,9 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     target = _as_float(case.target_ratio)
     processing_time_lower_bound = _processing_time_lower_bound(case)
 
+    # Variable creation: compare these domains with the paper's variable
+    # definitions, keeping in mind that the bounds are solver-strengthening
+    # choices and may be tighter than the bare formulation.
     p = {
         job_index: model.addVar(
             lb=_as_float(processing_time_lower_bound),
@@ -1047,6 +1095,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
     z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
 
+    # Section 4 base MIQP constraints start here.
     model.addConstrs(
         (p[j] >= p[j + 1] for j in range(1, case.job_count)),
         name="sorting",
@@ -1095,6 +1144,8 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="mtf_objective",
     )
 
+    # Global strengthenings used in all runs. Audit separately from the pure
+    # base MIQP if you want to know what is paper-essential vs solver-helpful.
     _apply_global_valid_inequalities(
         model,
         case,
@@ -1111,12 +1162,14 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     if case.enforce_target_lower_bound:
         model.addConstr(z_var >= target, name="target_lb")
 
+    # Section 5 common case split conditions.
     if case.acceleration_case is not AccelerationCase.BASE:
         _validate_paper_acceleration_case(case)
         _apply_paper_acceleration_constraints(
             model, case, p, x, q, jobs, truncated_jobs, machines
         )
 
+    # Section 5 profile- and branch-specific structural constraints.
     if case.mtf_profile is not None or case.opt_profile is not None:
         _apply_profile_cardinality_constraints(
             model,

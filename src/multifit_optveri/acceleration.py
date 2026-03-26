@@ -6,6 +6,9 @@ from fractions import Fraction
 
 from multifit_optveri.math_utils import format_ratio
 
+# Section 5 in the paper only fixes these acceleration cases for rho = 20/17
+# and m in {8, ..., 12}. If you are checking paper/code alignment, start here
+# to confirm the top-level case partition on p_n is identical.
 PAPER_TARGET_RATIO = Fraction(20, 17)
 PAPER_MACHINE_RANGE = range(8, 13)
 
@@ -35,6 +38,8 @@ class AccelerationCase(str, Enum):
 
     @property
     def pn_range(self) -> PnRange:
+        # This is the direct code translation of the paper's top-level partition
+        # on p_n before any ell/profile branching is applied.
         if self is AccelerationCase.BASE:
             return PnRange()
         if self is AccelerationCase.CASE_1:
@@ -63,6 +68,8 @@ def parse_acceleration_case(value: str | AccelerationCase) -> AccelerationCase:
 
 
 def paper_common_pn_lower_bound(machine_count: int) -> Fraction:
+    # This is the common lower bound on p_n used before the case split in
+    # Section 5. Compare this with the observation right before Case 1/2/3.
     if machine_count not in PAPER_MACHINE_RANGE:
         raise ValueError(
             f"Paper acceleration bounds are only defined for m in {PAPER_MACHINE_RANGE.start}.."

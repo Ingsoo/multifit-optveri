@@ -6,6 +6,10 @@ from typing import Iterator
 
 from multifit_optveri.acceleration import AccelerationCase
 
+# This file is the executable version of the paper's outer verification loops:
+# case -> m -> ell -> MTF profile -> OPT profile. When comparing with the paper,
+# the most important question here is whether each iterator yields exactly the
+# family of branches intended by the pseudocode and case analysis.
 
 @dataclass(frozen=True)
 class MtfProfile:
@@ -96,6 +100,10 @@ class OptProfile:
 
     @property
     def compact_id(self) -> str:
+        # `pattern` is an implementation convenience for distinguishing cases such as
+        # the even-ell Case 2 branch. The paper comparison should focus on the counts
+        # (m3, m4, m5) first, then on whether the extra pattern-specific constraints
+        # are added later in `models/obv.py`.
         suffix = self.pattern.replace("_", "")
         return f"opt{self.m3}{self.m4}{self.m5}{suffix}"
 
@@ -122,6 +130,9 @@ def ell_iterator(
     *,
     max_job_count: int,
 ) -> tuple[int, ...]:
+    # Compare this function directly against the paper pseudocode's
+    # `ell_iterator(m, case)`. If the branch order or feasible ell values differ,
+    # Section 5 alignment is already broken before the model is built.
     if acceleration_case is AccelerationCase.CASE_1:
         return tuple(reversed(list(range(1, machine_count + 2, 2))))
 
@@ -140,6 +151,9 @@ def iter_opt_profiles(
     ell: int,
     acceleration_case: AccelerationCase,
 ) -> Iterator[OptProfile]:
+    # This is the outer OPT-profile branching logic implied by the case analysis.
+    # It intentionally captures coarse profile families; the detailed structural
+    # consequences of a profile are enforced later in `models/obv.py`.
     if acceleration_case is AccelerationCase.CASE_1:
         yield OptProfile(m3=ell - 1, m4=machine_count - ell + 1, m5=0, pattern="case1")
         return
@@ -192,6 +206,9 @@ def iter_mtf_profiles(
     opt_profile: OptProfile,
     acceleration_case: AccelerationCase,
 ) -> Iterator[MtfProfile]:
+    # This is the MTF-profile iterator from the paper-style branch decomposition.
+    # When checking correctness, compare these arithmetic conditions with the
+    # pseudocode and any case-specific lemmas that restrict feasible profiles.
     nS3, nS4, nS5 = opt_profile.nS3, opt_profile.nS4, opt_profile.nS5
     job_count = opt_profile.total_job_count
 
@@ -273,6 +290,9 @@ def _iter_case_3_profiles(
     *,
     allow_case_32: bool,
 ) -> Iterator[MtfProfile]:
+    # Case 3 is split into 3-1 / 3-2 by whether ell is a fallback job in F2.
+    # `allow_case_32` toggles that branch. This helper is a good place to audit
+    # whether the code follows the paper's intended admissible profile region.
     f3_upper = max(0, (3 * machine_count - 22) // 12)
     for a in range(machine_count + 1):
         for nF1 in range(a + 1):
