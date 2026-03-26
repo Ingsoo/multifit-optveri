@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multifit-optveri"
+version = "0.1.0"
+description = "Gurobi-based experiments for optimization-based verification of MULTIFIT."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+gurobi = ["gurobipy>=11.0"]
+
+[project.scripts]
+multifit-optveri = "multifit_optveri.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

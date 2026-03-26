@@ -1,0 +1,18 @@
+[experiment]
+name = "paper_base"
+target_ratio = "20/17"
+machine_values = [8, 9, 10, 11, 12]
+derive_job_counts = true
+explicit_job_counts = []
+acceleration_cases = ["case_1", "case_2", "case_3_1", "case_3_2"]
+output_root = "results"
+write_lp = false
+enforce_target_lower_bound = true
+
+[solver]
+mip_gap = 0.0
+threads = 0
+presolve = 1
+non_convex = 2
+output_flag = 1
+legacy_best_bd_stop_at_target = true

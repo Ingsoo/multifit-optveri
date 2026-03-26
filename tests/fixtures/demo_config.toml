@@ -1,0 +1,17 @@
+[experiment]
+name = "demo"
+target_ratio = "20/17"
+machine_values = [8, 9]
+derive_job_counts = true
+explicit_job_counts = []
+acceleration_cases = ["case_1", "case_2", "case_3_1", "case_3_2"]
+output_root = "results"
+write_lp = false
+enforce_target_lower_bound = true
+
+[solver]
+time_limit_seconds = 60.0
+mip_gap = 0.01
+threads = 2
+non_convex = 2
+output_flag = 0
