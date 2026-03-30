@@ -51,6 +51,15 @@ The project uses Python 3.11 in Conda because Gurobi support tends to lag behind
 multifit-optveri plan --config configs/experiments/paper_base.toml
 ```
 
+The `plan` command supports the same filters as `run`, so you can inspect only the
+part of the enumeration you care about without building or solving any model:
+
+```powershell
+multifit-optveri plan --config configs/experiments/paper_base.toml --machine 8
+multifit-optveri plan --config configs/experiments/paper_base.toml --machine 8 --acceleration-case case_2
+multifit-optveri plan --config configs/experiments/paper_base.toml --machine 8 --acceleration-case case_1 --limit 20
+```
+
 or, with the wrapper:
 
 ```powershell
@@ -82,6 +91,41 @@ You can also use the wrapper:
 ```powershell
 .\scripts\run_case.cmd 8 24
 ```
+
+## Debugging enumeration
+
+If you want to debug the outer branching logic itself, use `plan`, not `run`.
+`plan` executes:
+
+`case -> m -> ell -> OPT profile -> MTF profile`
+
+but stops before any Gurobi model is built.
+
+Typical debugging commands:
+
+```powershell
+python scripts/run_obv.py plan --config configs/experiments/paper_base.toml --machine 8
+python scripts/run_obv.py plan --config configs/experiments/paper_base.toml --machine 8 --acceleration-case case_3_1
+python scripts/run_obv.py plan --config configs/experiments/paper_base.toml --machine 8 --acceleration-case case_1 --limit 20
+```
+
+In VS Code, the repository also includes ready-to-use debug launch targets in
+[`launch.json`](/c:/Users/msolab/Documents/GitHub/multifit-optveri/.vscode/launch.json):
+
+- `OBV: Plan paper_base`
+- `OBV: Plan paper_base (m=8)`
+- `OBV: Plan paper_base (m=8, case_1, limit=20)`
+
+Set breakpoints in [`experiments.py`](/c:/Users/msolab/Documents/GitHub/multifit-optveri/src/multifit_optveri/experiments.py),
+then press `F5` with one of those launch targets selected.
+
+The most useful breakpoint locations are:
+
+- the `machine_count` loop in `enumerate_cases`
+- the `ell_iterator(...)` loop
+- the `iter_opt_profiles(...)` loop
+- the `iter_mtf_profiles(...)` loop
+- the duplicate-branch check at `_branch_signature(case)`
 
 ## Tests
 
