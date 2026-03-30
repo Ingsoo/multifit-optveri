@@ -1144,7 +1144,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     # Section 4 base MIQP constraints start here.
     model.addConstrs(
         # Jobs are globally sorted by processing time.
-        (p[j] >= p[j + 1] for j in range(1, case.job_count)),
+        (p[j] >= p[j + 1] for j in truncated_jobs),
         name="sorting",
     )
     model.addConstrs(

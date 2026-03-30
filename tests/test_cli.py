@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 from io import StringIO
 from pathlib import Path
@@ -51,6 +52,24 @@ class CliTests(unittest.TestCase):
             exit_code = main(["plan", "--config", "tests/fixtures/demo_config.toml"])
         self.assertEqual(exit_code, 0)
         self.assertIn("Total cases:", output.getvalue())
+
+    def test_main_plan_applies_filters(self) -> None:
+        case_a = _sample_case("a")
+        case_b = replace(case_a, machine_count=9)
+        output = StringIO()
+
+        with patch(
+            "multifit_optveri.cli.load_experiment_config",
+            return_value=SimpleNamespace(),
+        ), patch(
+            "multifit_optveri.cli.enumerate_cases",
+            return_value=[case_a, case_b],
+        ), contextlib.redirect_stdout(output):
+            exit_code = main(["plan", "--config", "dummy.toml", "--machine", "8", "--limit", "1"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Total cases: 1", output.getvalue())
+        self.assertIn("m=8", output.getvalue())
 
     def test_main_run_uses_recorder_flow(self) -> None:
         config = ExperimentConfig(
