@@ -38,12 +38,7 @@ class MtfProfile:
     def scheduled_job_count(self) -> int:
         """Number of jobs that MTF successfully places before job n fails."""
 
-        return (
-            2 * (self.m1f + self.m2r)
-            + 3 * (self.m2f + self.m3r)
-            + 4 * (self.m3f + self.m4)
-            + 5 * self.m5
-        )
+        return 2 * (self.m1f + self.m2r) + 3 * (self.m2f + self.m3r) + 4 * (self.m3f + self.m4) + 5 * self.m5
 
     @property
     def total_job_count(self) -> int:
@@ -52,19 +47,14 @@ class MtfProfile:
 
     @property
     def compact_id(self) -> str:
-        return (
-            f"mtf{self.m1f}{self.m2r}{self.m2f}{self.m3r}{self.m3f}{self.m4}{self.m5}"
-        )
+        return f"mtf{self.m1f}{self.m2r}{self.m2f}{self.m3r}{self.m3f}{self.m4}{self.m5}"
 
     @property
     def machine_cardinalities(self) -> tuple[int, ...]:
         """Per-machine job counts in the left-to-right block order."""
 
         return (
-            (2,) * (self.m1f + self.m2r)
-            + (3,) * (self.m2f + self.m3r)
-            + (4,) * (self.m3f + self.m4)
-            + (5,) * self.m5
+            (2,) * (self.m1f + self.m2r) + (3,) * (self.m2f + self.m3r) + (4,) * (self.m3f + self.m4) + (5,) * self.m5
         )
 
     @property
@@ -154,17 +144,21 @@ def ell_iterator(
     # Compare this function directly against the paper pseudocode's
     # `ell_iterator(m, case)`. If the branch order or feasible ell values differ,
     # Section 5 alignment is already broken before the model is built.
+
+    # case 1. All odd ells from m+1 down to 1.
     if acceleration_case is AccelerationCase.CASE_1:
-        return tuple(reversed(list(range(1, machine_count + 2, 2))))
+        return tuple(ell for ell in range(machine_count + 1, 0, -1) if ell % 2 == 1)
 
     if acceleration_case is AccelerationCase.CASE_2:
-        upper = machine_count + 3 if machine_count % 2 == 0 else machine_count + 2
-        return tuple(reversed([ell for ell in range(1, upper) if ell != 2]))
+        upper = machine_count + 2 if machine_count % 2 == 0 else machine_count + 1
+        return tuple(ell for ell in range(upper, 0, -1) if ell != 2)
 
     if acceleration_case is AccelerationCase.CASE_3_1:
-        return tuple(reversed(list(range(1, machine_count + 4))))
+        upper = machine_count + 3 if machine_count % 2 == 0 else machine_count + 2
+        return tuple(range(upper, 0, -1))
 
-    return tuple(reversed(list(range(4, machine_count + 5))))
+    upper = machine_count + 1 if machine_count % 2 == 0 else machine_count + 2
+    return tuple(range(upper, 3, -1))
 
 
 def iter_opt_profiles(
@@ -247,14 +241,7 @@ def iter_mtf_profiles(
                 for nR4 in range(tail_total - nF3 + 1):
                     for nM5 in range(tail_total - nF3 - nR4 + 1):
                         nR3 = tail_total - nF3 - nR4 - nM5
-                        if (
-                            2 * nR2
-                            + 3 * (nF2 + nR3)
-                            + 4 * (nF3 + nR4)
-                            + 5 * nM5
-                            + 1
-                            == job_count
-                        ):
+                        if 2 * nR2 + 3 * (nF2 + nR3) + 4 * (nF3 + nR4) + 5 * nM5 + 1 == job_count:
                             yield MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
         return
 
@@ -273,12 +260,7 @@ def iter_mtf_profiles(
                         nR3 = tail_total - nF3 - nR4 - nM5
                         if all(
                             (
-                                2 * nR2
-                                + 3 * nF2
-                                + 3 * nR3
-                                + 4 * (nF3 + nR4)
-                                + 5 * nM5
-                                == job_count - 1,
+                                2 * nR2 + 3 * nF2 + 3 * nR3 + 4 * (nF3 + nR4) + 5 * nM5 == job_count - 1,
                                 2 * nF2 + 7 * nF3 < 2 * machine_count - 11,
                                 6 * nM5 < 2 * machine_count - 11,
                             )
