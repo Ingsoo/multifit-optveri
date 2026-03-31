@@ -106,6 +106,22 @@ class ObvBuildTests(unittest.TestCase):
         finally:
             built.model.dispose()
 
+    def test_profiled_opt_tail_sum_constraint_is_added(self) -> None:
+        case = _case(
+            acceleration_case=AccelerationCase.CASE_1,
+            ell=9,
+            job_count=24,
+            mtf_profile=MtfProfile(0, 4, 0, 2, 0, 1, 1),
+            opt_profile=OptProfile(8, 0, 0, pattern="case1"),
+        )
+        built = build_obv_model(case)
+
+        try:
+            model: GurobiModel = built.model
+            self.assertIsNotNone(model.getConstrByName("opt_profile_tail_sum"))
+        finally:
+            built.model.dispose()
+
     def test_opt_profile_without_three_job_machines_tightens_p_upper_bounds(self) -> None:
         case = _case(
             acceleration_case=AccelerationCase.BASE,

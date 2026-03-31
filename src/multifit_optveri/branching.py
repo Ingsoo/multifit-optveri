@@ -245,11 +245,16 @@ def iter_mtf_profiles(
     # pseudocode and any case-specific lemmas that restrict feasible profiles.
     if acceleration_case is AccelerationCase.CASE_1:
         # Case 1: long jobs pair cleanly, so the MTF side is determined by the
-        # number of long-job pairs, namely floor((ell - 1) / 2).
+        # number of long-job pairs, namely floor((ell - 1) / 2). Unlike the
+        # generic two-stage compatibility check, Case 1 also has the explicit
+        # identity n = 4m - ell + 1, so we enforce that total job count here.
         pair_total = (ell - 1) // 2
         if 2 * pair_total != ell - 1:
             return
         tail_total = machine_count - pair_total
+        target_job_count = 4 * machine_count - ell + 1
+        if max_job_count is not None and target_job_count > max_job_count:
+            return
         for nF2 in range(pair_total + 1):
             nR2 = pair_total - nF2
             for nF3 in range(tail_total + 1):
@@ -257,7 +262,7 @@ def iter_mtf_profiles(
                     for nM5 in range(tail_total - nF3 - nR4 + 1):
                         nR3 = tail_total - nF3 - nR4 - nM5
                         profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
-                        if max_job_count is None or profile.total_job_count <= max_job_count:
+                        if profile.total_job_count == target_job_count:
                             yield profile
         return
 

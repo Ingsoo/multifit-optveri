@@ -50,14 +50,17 @@ class BranchingTests(unittest.TestCase):
         )
 
     def test_case_1_and_case_2_mtf_profile_counts_match_current_branching(self) -> None:
-        case_1_profiles = list(
-            profile
-            for profile in iter_mtf_profiles(
+        raw_case_1_profiles = list(
+            iter_mtf_profiles(
                 8,
                 9,
                 AccelerationCase.CASE_1,
                 max_job_count=100,
             )
+        )
+        case_1_profiles = list(
+            profile
+            for profile in raw_case_1_profiles
             if any(
                 candidate == OptProfile(8, 0, 0, pattern="case1")
                 for candidate in iter_opt_profiles(
@@ -87,6 +90,7 @@ class BranchingTests(unittest.TestCase):
             )
         )
 
+        self.assertTrue(all(profile.total_job_count == 24 for profile in raw_case_1_profiles))
         self.assertEqual(len(case_1_profiles), 13)
         self.assertEqual(
             [profile.compact_id for profile in case_1_profiles[:3]],

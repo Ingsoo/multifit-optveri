@@ -289,6 +289,7 @@ def _apply_profile_cardinality_constraints(
                 gp.quicksum(x[machine_index, j] for j in jobs) == cardinality,
                 name=f"opt_profile_cardinality[{machine_index}]",
             )
+        _apply_opt_profile_tail_sum_constraint(model, case, p)
 
     if case.mtf_profile is not None:
         # Fix the number of jobs on each MTF machine according to the chosen
@@ -376,6 +377,33 @@ def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
         t2=t2,
         t3=t3,
         t4=t4,
+    )
+
+
+def _apply_opt_profile_tail_sum_constraint(
+    model: GurobiModel,
+    case: ExperimentCase,
+    p: PVarMap,
+) -> None:
+    """Add the OPT tail-sum inequality implied by the fixed OPT profile.
+
+    This is the exact profile-aware version of the chapter's additional valid
+    condition: the smallest 4|S4| + 5|S5| jobs together fit on the S4/S5
+    machines, whose total OPT capacity is |S4| + |S5|.
+    """
+
+    if case.opt_profile is None:
+        return
+
+    tail_job_count = 4 * case.opt_profile.nS4 + 5 * case.opt_profile.nS5
+    if tail_job_count <= 0:
+        return
+
+    first_tail_job = case.job_count - tail_job_count + 1
+    model.addConstr(
+        gp.quicksum(p[job_index] for job_index in range(first_tail_job, case.job_count + 1))
+        <= case.opt_profile.nS4 + case.opt_profile.nS5,
+        name="opt_profile_tail_sum",
     )
 
 
