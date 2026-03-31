@@ -244,12 +244,10 @@ def iter_mtf_profiles(
     # When checking correctness, compare these arithmetic conditions with the
     # pseudocode and any case-specific lemmas that restrict feasible profiles.
     if acceleration_case is AccelerationCase.CASE_1:
-        # Case 1: long jobs pair cleanly, so the profile search is over the tail
-        # blocks once the number of 2-job machines is determined by nS3.
-        nS3 = ell - 1
-        job_count = 3 * nS3 + 4 * (machine_count - ell + 1)
-        pair_total = nS3 // 2
-        if 2 * pair_total != nS3:
+        # Case 1: long jobs pair cleanly, so the MTF side is determined by the
+        # number of long-job pairs, namely floor((ell - 1) / 2).
+        pair_total = (ell - 1) // 2
+        if 2 * pair_total != ell - 1:
             return
         tail_total = machine_count - pair_total
         for nF2 in range(pair_total + 1):
@@ -259,21 +257,15 @@ def iter_mtf_profiles(
                     for nM5 in range(tail_total - nF3 - nR4 + 1):
                         nR3 = tail_total - nF3 - nR4 - nM5
                         profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
-                        if profile.total_job_count == job_count:
+                        if max_job_count is None or profile.total_job_count <= max_job_count:
                             yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
-        # Case 2: same broad shape as Case 1, but additional inequalities limit
-        # F3 and M5 through the case-specific counting arguments.
-        nS3 = ell - 2 if ell % 2 == 0 else ell - 1
-        if ell % 2 == 0:
-            job_count = 3 * nS3 + 4 * (machine_count - ell + 2)
-        else:
-            job_count = 3 * nS3 + 4 * (machine_count - ell + 1)
-        pair_total = nS3 // 2
-        if 2 * pair_total != nS3:
-            return
+        # Case 2: same broad shape as Case 1, but now ell may be odd or even.
+        # The pair block still depends only on the number of long-job pairs,
+        # which is floor((ell - 1) / 2).
+        pair_total = (ell - 1) // 2
         tail_total = machine_count - pair_total
         for nF2 in range(pair_total + 1):
             nR2 = pair_total - nF2
@@ -283,12 +275,13 @@ def iter_mtf_profiles(
                         nR3 = tail_total - nF3 - nR4 - nM5
                         if all(
                             (
-                                2 * nR2 + 3 * nF2 + 3 * nR3 + 4 * (nF3 + nR4) + 5 * nM5 == job_count - 1,
                                 2 * nF2 + 7 * nF3 < 2 * machine_count - 11,
                                 6 * nM5 < 2 * machine_count - 11,
                             )
                         ):
-                            yield MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
+                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
+                            if max_job_count is None or profile.total_job_count <= max_job_count:
+                                yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_3_1:

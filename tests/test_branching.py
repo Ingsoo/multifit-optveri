@@ -51,19 +51,39 @@ class BranchingTests(unittest.TestCase):
 
     def test_case_1_and_case_2_mtf_profile_counts_match_current_branching(self) -> None:
         case_1_profiles = list(
-            iter_mtf_profiles(
+            profile
+            for profile in iter_mtf_profiles(
                 8,
                 9,
                 AccelerationCase.CASE_1,
                 max_job_count=100,
             )
+            if any(
+                candidate == OptProfile(8, 0, 0, pattern="case1")
+                for candidate in iter_opt_profiles(
+                    8,
+                    9,
+                    AccelerationCase.CASE_1,
+                    mtf_profile=profile,
+                )
+            )
         )
         case_2_profiles = list(
-            iter_mtf_profiles(
+            profile
+            for profile in iter_mtf_profiles(
                 8,
                 10,
                 AccelerationCase.CASE_2,
                 max_job_count=100,
+            )
+            if any(
+                candidate == OptProfile(8, 0, 0, pattern="two_long")
+                for candidate in iter_opt_profiles(
+                    8,
+                    10,
+                    AccelerationCase.CASE_2,
+                    mtf_profile=profile,
+                )
             )
         )
 
