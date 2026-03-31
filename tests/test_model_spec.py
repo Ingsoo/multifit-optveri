@@ -17,12 +17,13 @@ class ModelSpecTests(unittest.TestCase):
         self.assertEqual(dimensions.total_variables, 585)
         self.assertEqual(dimensions.constraint_counts["opt_cardinality_lb"], 8)
         self.assertEqual(dimensions.constraint_counts["opt_cardinality_ub"], 8)
+        self.assertEqual(dimensions.constraint_counts["opt_cardinality_order"], 7)
         self.assertEqual(dimensions.constraint_counts["mtf_init_order"], 28)
         self.assertEqual(dimensions.constraint_counts["mtf_init_fixed"], 8)
         self.assertEqual(dimensions.constraint_counts["mtf_cardinality_lb"], 8)
         self.assertEqual(dimensions.constraint_counts["mtf_cardinality_ub"], 8)
         self.assertEqual(dimensions.constraint_counts["mtf_balance"], 22)
-        self.assertEqual(dimensions.total_constraints, 721)
+        self.assertEqual(dimensions.total_constraints, 728)
 
     def test_dimension_counts_for_case_2_acceleration(self) -> None:
         dimensions = derive_obv_dimensions(

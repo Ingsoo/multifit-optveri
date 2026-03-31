@@ -227,13 +227,6 @@ def _apply_paper_acceleration_constraints(
         name="opt_cardinality",
     )
     model.addConstrs(
-        (
-            gp.quicksum(x[i, j] for j in jobs) <= gp.quicksum(x[i + 1, j] for j in jobs)
-            for i in range(1, case.machine_count)
-        ),
-        name="opt_cardinality_order",
-    )
-    model.addConstrs(
         (gp.quicksum(q[i, j] for j in truncated_jobs) <= 5 for i in machines),
         name="mtf_cardinality",
     )
@@ -453,10 +446,7 @@ def _apply_mtf_base_profile_constraints(
             p[layout.e2 + 2 * profile.nR2 - 2] + p[layout.e2 + 2 * profile.nR2 - 1] + p[case.job_count] >= target,
             name=f"R2_valid_constr[{layout.r2_machines[-1]}]",
         )
-        if profile.nF1 == 0:
-            proc_same_range = range(layout.t2, layout.e2 + 2 * profile.nR2 - 2)
-        else:
-            proc_same_range = range(layout.t2 + 1, layout.e2 + 2 * profile.nR2 - 2)
+        proc_same_range = range(layout.t2 + 1, layout.e2 + 2 * profile.nR2 - 2)
         for job_index in proc_same_range:
             # Jobs in the regular interior of R2 can be assumed to have equal
             # processing times; symmetry is then broken in OPT accordingly.
@@ -491,10 +481,7 @@ def _apply_mtf_base_profile_constraints(
             >= target,
             name=f"R3_valid_constr[{layout.r3_machines[-1]}]",
         )
-        if profile.nF1 == 0 and profile.nF2 == 0:
-            proc_same_range = range(layout.t3, layout.e3 + 3 * profile.nR3 - 3)
-        else:
-            proc_same_range = range(layout.t3 + 1, layout.e3 + 3 * profile.nR3 - 3)
+        proc_same_range = range(layout.t3 + 1, layout.e3 + 3 * profile.nR3 - 3)
         for job_index in proc_same_range:
             model.addConstr(
                 p[job_index] == p[job_index + 1],
@@ -527,10 +514,7 @@ def _apply_mtf_base_profile_constraints(
             >= target,
             name=f"R4_valid_constr[{layout.r4_machines[-1]}]",
         )
-        if profile.nF1 == 0 and profile.nF2 == 0 and profile.nF3 == 0:
-            proc_same_range = range(layout.t4, layout.e4 + 4 * profile.nR4 - 4)
-        else:
-            proc_same_range = range(layout.t4 + 1, layout.e4 + 4 * profile.nR4 - 4)
+        proc_same_range = range(layout.t4 + 1, layout.e4 + 4 * profile.nR4 - 4)
         for job_index in proc_same_range:
             model.addConstr(
                 p[job_index] == p[job_index + 1],
@@ -596,6 +580,14 @@ def _apply_global_valid_inequalities(
             for machine_index in machines
         ),
         name="opt_cardinality_ub",
+    )
+    model.addConstrs(
+        (
+            gp.quicksum(x[machine_index, job_index] for job_index in jobs)
+            <= gp.quicksum(x[machine_index + 1, job_index] for job_index in jobs)
+            for machine_index in range(1, case.machine_count)
+        ),
+        name="opt_cardinality_order",
     )
 
     rem = case.job_count % case.machine_count
@@ -712,10 +704,7 @@ def _apply_r5_constraints(
         name=f"case34_R5_valid_constr[{layout.m5_machines[-1]}]",
     )
 
-    if profile.nF1 == 0 and profile.nF2 == 0 and profile.nF3 == 0:
-        proc_same_range = range(t5, e5 + 5 * profile.nM5 - 5)
-    else:
-        proc_same_range = range(t5 + 1, e5 + 5 * profile.nM5 - 5)
+    proc_same_range = range(t5 + 1, e5 + 5 * profile.nM5 - 5)
 
     for job_index in proc_same_range:
         # As in R2/R3/R4, regular interior jobs can be collapsed to equal sizes.

@@ -75,6 +75,7 @@ def derive_obv_dimensions(
         "mtf_objective": machine_count,
         "opt_cardinality_lb": machine_count,
         "opt_cardinality_ub": machine_count,
+        "opt_cardinality_order": machine_count - 1,
         "mtf_init_order": mtf_init_order_count,
         "mtf_init_fixed": machine_count,
         "mtf_cardinality_lb": machine_count,
@@ -93,7 +94,6 @@ def derive_obv_dimensions(
         # case/profile constraints in `obv.py` are not exhaustively counted here.
         constraint_counts["pn_common_lb"] = 1
         constraint_counts["opt_cardinality"] = machine_count
-        constraint_counts["opt_cardinality_order"] = machine_count - 1
         constraint_counts["mtf_cardinality"] = machine_count
 
         pn_range = acceleration_case.pn_range
