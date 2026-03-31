@@ -9,7 +9,7 @@ import csv
 import json
 
 from multifit_optveri.experiments import ExperimentCase
-from multifit_optveri.math_utils import format_ratio, format_scaled_rational_values
+from multifit_optveri.math_utils import format_ratio, format_scaled_rational_values, parse_ratio
 from multifit_optveri.models.obv import BuiltObvModel, build_obv_model
 
 if TYPE_CHECKING:
@@ -51,6 +51,7 @@ class SolveResult:
     mtf_profile: str | None
     opt_profile: str | None
     target_ratio: str
+    verification_result: str
     status: str
     objective_value: float | None
     objective_bound: float | None
@@ -137,6 +138,7 @@ def _result_csv_fieldnames() -> list[str]:
         "ell",
         "mtf-profile-(f1_r2_f2_r3_f3_m4_m5)",
         "opt-profile-(e3_e4_e5)",
+        "verification_result",
         "status",
         "objective_value",
         "objective_bound",
@@ -156,6 +158,7 @@ def _result_summary_payload(result: SolveResult) -> dict[str, object]:
         "ell": result.ell if result.ell is not None else "",
         "mtf-profile-(f1_r2_f2_r3_f3_m4_m5)": (result.mtf_profile if result.mtf_profile is not None else ""),
         "opt-profile-(e3_e4_e5)": (result.opt_profile if result.opt_profile is not None else ""),
+        "verification_result": result.verification_result,
         "status": result.status,
         "objective_value": result.objective_value if result.objective_value is not None else "",
         "objective_bound": result.objective_bound if result.objective_bound is not None else "",
@@ -170,6 +173,24 @@ def _result_summary_payload(result: SolveResult) -> dict[str, object]:
 
 def _result_csv_row(result: SolveResult) -> dict[str, object]:
     return _result_summary_payload(result)
+
+
+def _verification_result(
+    *,
+    status: str,
+    objective_value: float | None,
+    target_ratio: str,
+) -> str:
+    """Classify one solved branch as verified/not-verified for the paper claim."""
+
+    target = float(parse_ratio(target_ratio))
+    if status == "INFEASIBLE":
+        return "VERIFIED"
+    if objective_value is not None:
+        if objective_value <= target:
+            return "VERIFIED"
+        return "NOT_VERIFIED"
+    return "UNKNOWN"
 
 
 def _format_mtf_profile(case: ExperimentCase) -> str | None:
@@ -278,6 +299,7 @@ class RunRecorder:
 
     def _write_overview(self) -> None:
         status_counts = Counter(result.status for result in self.results)
+        verification_counts = Counter(result.verification_result for result in self.results)
         case_counts = Counter(result.acceleration_case for result in self.results)
         total_runtime = sum(result.runtime_seconds for result in self.results if result.runtime_seconds is not None)
         _write_json(
@@ -287,6 +309,7 @@ class RunRecorder:
                 "completed_case_count": len(self.results),
                 "planned_case_count": len(self.cases),
                 "status_counts": dict(status_counts),
+                "verification_result_counts": dict(verification_counts),
                 "acceleration_case_counts": dict(case_counts),
                 "total_runtime_seconds": total_runtime,
                 "summary_csv": str(self.artifacts.summary_csv_path),
@@ -317,6 +340,11 @@ def run_case(case: ExperimentCase) -> SolveResult:
         mtf_profile=_format_mtf_profile(case),
         opt_profile=_format_opt_profile(case),
         target_ratio=format_ratio(case.target_ratio),
+        verification_result=_verification_result(
+            status=_status_name(model.Status),
+            objective_value=(float(model.ObjVal) if has_solution else None),
+            target_ratio=format_ratio(case.target_ratio),
+        ),
         status=_status_name(model.Status),
         objective_value=(float(model.ObjVal) if has_solution else None),
         objective_bound=(float(model.ObjBound) if hasattr(model, "ObjBound") else None),

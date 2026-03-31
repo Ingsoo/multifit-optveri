@@ -21,6 +21,7 @@ from multifit_optveri.runner import (
     _result_csv_fieldnames,
     _result_csv_row,
     _status_name,
+    _verification_result,
     create_run_artifacts,
     run_cases,
 )
@@ -54,6 +55,7 @@ def _sample_result(output_dir: Path, *, case_id: str = "case_a") -> SolveResult:
         mtf_profile="(0,4,0,1,0,3,0)",
         opt_profile="(8,0,0)",
         target_ratio="20/17",
+        verification_result="VERIFIED",
         status="INFEASIBLE",
         objective_value=None,
         objective_bound=1.17647,
@@ -88,13 +90,33 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("case_id", _result_csv_fieldnames())
         self.assertIn("mtf-profile-(f1_r2_f2_r3_f3_m4_m5)", _result_csv_fieldnames())
         self.assertIn("opt-profile-(e3_e4_e5)", _result_csv_fieldnames())
+        self.assertIn("verification_result", _result_csv_fieldnames())
         self.assertIn("optimal-p-values-(desc-scaled)", _result_csv_fieldnames())
         self.assertEqual(row["case_id"], "case_a")
         self.assertEqual(row["objective_value"], "")
         self.assertEqual(row["status"], "INFEASIBLE")
+        self.assertEqual(row["verification_result"], "VERIFIED")
         self.assertEqual(row["mtf-profile-(f1_r2_f2_r3_f3_m4_m5)"], "(0,4,0,1,0,3,0)")
         self.assertEqual(row["opt-profile-(e3_e4_e5)"], "(8,0,0)")
         self.assertEqual(row["optimal-p-values-(desc-scaled)"], "")
+
+    def test_verification_result_matches_algorithm_rule(self) -> None:
+        self.assertEqual(
+            _verification_result(status="INFEASIBLE", objective_value=None, target_ratio="20/17"),
+            "VERIFIED",
+        )
+        self.assertEqual(
+            _verification_result(status="OPTIMAL", objective_value=20 / 17, target_ratio="20/17"),
+            "VERIFIED",
+        )
+        self.assertEqual(
+            _verification_result(status="OPTIMAL", objective_value=1.2, target_ratio="20/17"),
+            "NOT_VERIFIED",
+        )
+        self.assertEqual(
+            _verification_result(status="TIME_LIMIT", objective_value=None, target_ratio="20/17"),
+            "UNKNOWN",
+        )
 
     def test_profile_format_helpers(self) -> None:
         case = ExperimentCase(
@@ -189,10 +211,13 @@ class RunnerTests(unittest.TestCase):
             summary_jsonl = artifacts.summary_jsonl_path.read_text(encoding="utf-8")
             self.assertIn("case_a", summary_csv)
             self.assertIn("mtf-profile-(f1_r2_f2_r3_f3_m4_m5)", summary_csv)
+            self.assertIn("verification_result", summary_csv)
             self.assertNotIn("output_dir", summary_csv)
+            self.assertIn("\"verification_result\": \"VERIFIED\"", summary_jsonl)
             self.assertIn("\"optimal-p-values-(desc-scaled)\": \"\"", summary_jsonl)
             self.assertNotIn("\"output_dir\":", summary_jsonl)
             self.assertIn("\"completed_case_count\": 1", artifacts.overview_json_path.read_text(encoding="utf-8"))
+            self.assertIn("\"verification_result_counts\": {", artifacts.overview_json_path.read_text(encoding="utf-8"))
 
     def test_run_cases_uses_run_recorder_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
