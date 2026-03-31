@@ -57,8 +57,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    print(f"Loading config: {args.config}", flush=True)
     config = load_experiment_config(args.config)
+    print("Enumerating cases...", flush=True)
     cases = enumerate_cases(config)
+    print(f"Enumerated {len(cases)} case(s) before CLI filtering.", flush=True)
     filtered_cases = _filter_cases(
         cases,
         args.machine,
@@ -66,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         args.acceleration_case,
         args.limit,
     )
+    print(f"Matched {len(filtered_cases)} case(s) after CLI filtering.", flush=True)
 
     if args.command == "plan":
         print(render_case_plan(filtered_cases))

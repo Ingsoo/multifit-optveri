@@ -51,6 +51,7 @@ class CliTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             exit_code = main(["plan", "--config", "tests/fixtures/demo_config.toml"])
         self.assertEqual(exit_code, 0)
+        self.assertIn("Enumerating cases...", output.getvalue())
         self.assertIn("Total cases:", output.getvalue())
 
     def test_main_plan_applies_filters(self) -> None:
@@ -115,6 +116,7 @@ class CliTests(unittest.TestCase):
                 exit_code = main(["run", "--config", "dummy.toml", "--machine", "8"])
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("Matched 1 case(s) after CLI filtering.", output.getvalue())
         self.assertIn("Running 1 case(s)...", output.getvalue())
         self.assertIn("Run directory:", output.getvalue())
 
