@@ -165,29 +165,35 @@ def iter_opt_profiles(
     machine_count: int,
     ell: int,
     acceleration_case: AccelerationCase,
+    *,
+    mtf_profile: MtfProfile | None = None,
 ) -> Iterator[OptProfile]:
     # This is the outer OPT-profile branching logic implied by the case analysis.
     # It intentionally captures coarse profile families; the detailed structural
     # consequences of a profile are enforced later in `models/obv.py`.
     if acceleration_case is AccelerationCase.CASE_1:
-        yield OptProfile(m3=ell - 1, m4=machine_count - ell + 1, m5=0, pattern="case1")
+        profile = OptProfile(m3=ell - 1, m4=machine_count - ell + 1, m5=0, pattern="case1")
+        if mtf_profile is None or profile.total_job_count == mtf_profile.total_job_count:
+            yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
         if ell % 2 == 0:
-            yield OptProfile(
+            profile = OptProfile(
                 m3=ell - 2,
                 m4=machine_count - ell + 2,
                 m5=0,
                 pattern="two_long",
             )
         else:
-            yield OptProfile(
+            profile = OptProfile(
                 m3=ell - 1,
                 m4=machine_count - ell + 1,
                 m5=0,
                 pattern="regular",
             )
+        if mtf_profile is None or profile.total_job_count == mtf_profile.total_job_count:
+            yield profile
         return
 
     for nS3, nS4, nS5 in product(range(machine_count + 1), repeat=3):
@@ -195,42 +201,53 @@ def iter_opt_profiles(
         if nS3 + nS4 + nS5 != machine_count:
             continue
 
+        profile = OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+        if mtf_profile is not None:
+            if profile.total_job_count != mtf_profile.total_job_count:
+                continue
+            if acceleration_case is AccelerationCase.CASE_3_1:
+                if _case_3_1_opt_profile_matches(ell, mtf_profile, profile):
+                    yield profile
+            elif _case_3_2_opt_profile_matches(ell, mtf_profile, profile):
+                yield profile
+            continue
+
         if acceleration_case is AccelerationCase.CASE_3_1:
             if ell in (1, 2):
                 if nS3 == 0:
-                    yield OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+                    yield profile
             elif ell % 2 == 1:
                 if nS3 <= ell - 1:
-                    yield OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+                    yield profile
             else:
                 if nS3 <= ell - 2:
-                    yield OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+                    yield profile
             continue
 
         if nS4 >= 1:
             if ell % 2 == 1:
                 if nS3 <= ell - 5:
-                    yield OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+                    yield profile
             else:
                 if nS3 <= ell - 4:
-                    yield OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+                    yield profile
 
 
 def iter_mtf_profiles(
     machine_count: int,
     ell: int,
-    opt_profile: OptProfile,
     acceleration_case: AccelerationCase,
+    *,
+    max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
     # This is the MTF-profile iterator from the paper-style branch decomposition.
     # When checking correctness, compare these arithmetic conditions with the
     # pseudocode and any case-specific lemmas that restrict feasible profiles.
-    nS3, nS4 = opt_profile.nS3, opt_profile.nS4
-    job_count = opt_profile.total_job_count
-
     if acceleration_case is AccelerationCase.CASE_1:
         # Case 1: long jobs pair cleanly, so the profile search is over the tail
         # blocks once the number of 2-job machines is determined by nS3.
+        nS3 = ell - 1
+        job_count = 3 * nS3 + 4 * (machine_count - ell + 1)
         pair_total = nS3 // 2
         if 2 * pair_total != nS3:
             return
@@ -241,13 +258,19 @@ def iter_mtf_profiles(
                 for nR4 in range(tail_total - nF3 + 1):
                     for nM5 in range(tail_total - nF3 - nR4 + 1):
                         nR3 = tail_total - nF3 - nR4 - nM5
-                        if 2 * nR2 + 3 * (nF2 + nR3) + 4 * (nF3 + nR4) + 5 * nM5 + 1 == job_count:
-                            yield MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
+                        profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
+                        if profile.total_job_count == job_count:
+                            yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
         # Case 2: same broad shape as Case 1, but additional inequalities limit
         # F3 and M5 through the case-specific counting arguments.
+        nS3 = ell - 2 if ell % 2 == 0 else ell - 1
+        if ell % 2 == 0:
+            job_count = 3 * nS3 + 4 * (machine_count - ell + 2)
+        else:
+            job_count = 3 * nS3 + 4 * (machine_count - ell + 1)
         pair_total = nS3 // 2
         if 2 * pair_total != nS3:
             return
@@ -274,10 +297,8 @@ def iter_mtf_profiles(
         yield from _iter_case_3_profiles(
             machine_count,
             ell,
-            nS3,
-            nS4,
-            job_count,
             allow_case_32=False,
+            max_job_count=max_job_count,
         )
         return
 
@@ -285,21 +306,17 @@ def iter_mtf_profiles(
     yield from _iter_case_3_profiles(
         machine_count,
         ell,
-        nS3,
-        nS4,
-        job_count,
         allow_case_32=True,
+        max_job_count=max_job_count,
     )
 
 
 def _iter_case_3_profiles(
     machine_count: int,
     ell: int,
-    nS3: int,
-    nS4: int,
-    job_count: int,
     *,
     allow_case_32: bool,
+    max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
     # Case 3 is split into 3-1 / 3-2 by whether ell is a fallback job in F2.
     # `allow_case_32` toggles that branch. This helper is a good place to audit
@@ -309,18 +326,10 @@ def _iter_case_3_profiles(
         # `a` is the total size of the F1/R2 prefix in terms of machines.
         for nF1 in range(a + 1):
             nR2 = a - nF1
-            if allow_case_32:
-                if not (2 * a - 1 <= nS3 <= 2 * a):
-                    continue
-            else:
-                if not (2 * a - 1 <= nS3):
-                    continue
             for nF2 in range(machine_count - a + 1):
                 if allow_case_32:
-                    if nF2 == 0 or nS4 < 2 * nF2 - 1:
+                    if nF2 == 0:
                         continue
-                if not allow_case_32 and nS3 > 2 * (a + nF2):
-                    continue
                 if allow_case_32:
                     if not (2 * (a + nF2) + 2 <= ell <= 2 * (a + nF2) + 3):
                         continue
@@ -329,13 +338,49 @@ def _iter_case_3_profiles(
                         continue
                 for b in range(nF2, machine_count - a + 1):
                     nR3 = b - nF2
-                    nM5 = job_count - 1 - 4 * machine_count + 2 * a + b
-                    if nM5 < 0:
-                        continue
                     for nF3 in range(f3_upper + 1):
                         if 2 * nF2 + 12 * nF3 >= 3 * machine_count - 21:
                             continue
-                        nR4 = machine_count - a - b - nF3 - nM5
-                        if nR4 < 0:
-                            continue
-                        yield MtfProfile(nF1, nR2, nF2, nR3, nF3, nR4, nM5)
+                        for nM5 in range(machine_count - a - b - nF3 + 1):
+                            nR4 = machine_count - a - b - nF3 - nM5
+                            profile = MtfProfile(nF1, nR2, nF2, nR3, nF3, nR4, nM5)
+                            if max_job_count is not None and profile.total_job_count > max_job_count:
+                                continue
+                            yield profile
+
+
+def _case_3_1_opt_profile_matches(
+    ell: int,
+    mtf_profile: MtfProfile,
+    opt_profile: OptProfile,
+) -> bool:
+    a = mtf_profile.nF1 + mtf_profile.nR2
+    nF2 = mtf_profile.nF2
+    nS3 = opt_profile.nS3
+
+    if not (2 * a - 1 <= nS3 <= 2 * (a + nF2)):
+        return False
+    if ell in (1, 2):
+        return nS3 == 0
+    if ell % 2 == 1:
+        return nS3 <= ell - 1
+    return nS3 <= ell - 2
+
+
+def _case_3_2_opt_profile_matches(
+    ell: int,
+    mtf_profile: MtfProfile,
+    opt_profile: OptProfile,
+) -> bool:
+    a = mtf_profile.nF1 + mtf_profile.nR2
+    nF2 = mtf_profile.nF2
+    nS3 = opt_profile.nS3
+    nS4 = opt_profile.nS4
+
+    if nF2 == 0 or nS4 < 1 or nS4 < 2 * nF2 - 1:
+        return False
+    if not (2 * a - 1 <= nS3 <= 2 * a):
+        return False
+    if ell % 2 == 1:
+        return nS3 <= ell - 5
+    return nS3 <= ell - 4

@@ -33,7 +33,7 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(ell_iterator(8, AccelerationCase.CASE_1, max_job_count=100), (9, 7, 5, 3, 1))
         self.assertEqual(ell_iterator(8, AccelerationCase.CASE_2, max_job_count=100), (10, 9, 8, 7, 6, 5, 4, 3, 1))
         self.assertEqual(ell_iterator(8, AccelerationCase.CASE_3_1, max_job_count=100), tuple(range(11, 0, -1)))
-        self.assertEqual(ell_iterator(8, AccelerationCase.CASE_3_2, max_job_count=100), tuple(range(12, 3, -1)))
+        self.assertEqual(ell_iterator(8, AccelerationCase.CASE_3_2, max_job_count=100), tuple(range(9, 3, -1)))
 
     def test_case_1_and_case_2_opt_profiles_are_fully_determined(self) -> None:
         self.assertEqual(
@@ -54,16 +54,16 @@ class BranchingTests(unittest.TestCase):
             iter_mtf_profiles(
                 8,
                 9,
-                OptProfile(8, 0, 0, pattern="case1"),
                 AccelerationCase.CASE_1,
+                max_job_count=100,
             )
         )
         case_2_profiles = list(
             iter_mtf_profiles(
                 8,
                 10,
-                OptProfile(8, 0, 0, pattern="two_long"),
                 AccelerationCase.CASE_2,
+                max_job_count=100,
             )
         )
 
@@ -79,16 +79,40 @@ class BranchingTests(unittest.TestCase):
         )
 
     def test_case_3_profiles_satisfy_basic_invariants(self) -> None:
-        opt_profile = OptProfile(0, 8, 0, pattern="generic")
         case_31_profiles = list(
-            iter_mtf_profiles(8, 4, opt_profile, AccelerationCase.CASE_3_1)
-        )
-        case_32_profiles = list(
-            iter_mtf_profiles(
+            profile
+            for profile in iter_mtf_profiles(
                 8,
                 4,
-                OptProfile(0, 1, 7, pattern="generic"),
+                AccelerationCase.CASE_3_1,
+                max_job_count=32,
+            )
+            if any(
+                candidate == OptProfile(0, 8, 0, pattern="generic")
+                for candidate in iter_opt_profiles(
+                    8,
+                    4,
+                    AccelerationCase.CASE_3_1,
+                    mtf_profile=profile,
+                )
+            )
+        )
+        case_32_profiles = list(
+            profile
+            for profile in iter_mtf_profiles(
+                8,
+                4,
                 AccelerationCase.CASE_3_2,
+                max_job_count=39,
+            )
+            if any(
+                candidate == OptProfile(0, 1, 7, pattern="generic")
+                for candidate in iter_opt_profiles(
+                    8,
+                    4,
+                    AccelerationCase.CASE_3_2,
+                    mtf_profile=profile,
+                )
             )
         )
 
@@ -110,13 +134,24 @@ class BranchingTests(unittest.TestCase):
         for profile in case_31_profiles + case_32_profiles:
             self.assertEqual(profile.machine_count, 8)
 
-    def test_generated_profiles_match_opt_job_count(self) -> None:
-        for acceleration_case, ell, opt_profile in (
-            (AccelerationCase.CASE_1, 9, OptProfile(8, 0, 0, pattern="case1")),
-            (AccelerationCase.CASE_2, 10, OptProfile(8, 0, 0, pattern="two_long")),
+    def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
+        for acceleration_case, ell in (
+            (AccelerationCase.CASE_1, 9),
+            (AccelerationCase.CASE_2, 10),
         ):
-            for mtf_profile in iter_mtf_profiles(8, ell, opt_profile, acceleration_case):
-                self.assertEqual(mtf_profile.total_job_count, opt_profile.total_job_count)
+            for mtf_profile in iter_mtf_profiles(
+                8,
+                ell,
+                acceleration_case,
+                max_job_count=100,
+            ):
+                for opt_profile in iter_opt_profiles(
+                    8,
+                    ell,
+                    acceleration_case,
+                    mtf_profile=mtf_profile,
+                ):
+                    self.assertEqual(mtf_profile.total_job_count, opt_profile.total_job_count)
 
 
 if __name__ == "__main__":

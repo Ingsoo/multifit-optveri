@@ -119,7 +119,7 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
     1. iterate over m
     2. derive/choose feasible n values
     3. iterate over acceleration cases
-    4. if accelerated: iterate over ell, OPT profile, MTF profile
+    4. if accelerated: iterate over ell, MTF profile, OPT profile
     5. materialize one `ExperimentCase` per surviving branch
     """
 
@@ -158,31 +158,28 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                 continue
 
             # Acceleration mode corresponds to Section 5:
-            # ell -> OPT profile -> MTF profile.
+            # ell -> MTF profile -> OPT profile.
             for ell in ell_iterator(
                 machine_count,
                 acceleration_case,
                 max_job_count=bounds.upper,
             ):
-                for opt_profile in iter_opt_profiles(
+                for mtf_profile in iter_mtf_profiles(
                     machine_count,
                     ell,
                     acceleration_case,
+                    max_job_count=bounds.upper,
                 ):
-                    # OPT profile fixes n immediately, since its machine counts
-                    # determine the total number of jobs.
-                    job_count = opt_profile.total_job_count
+                    job_count = mtf_profile.total_job_count
                     if job_count not in allowed_job_counts:
                         continue
 
-                    for mtf_profile in iter_mtf_profiles(
+                    for opt_profile in iter_opt_profiles(
                         machine_count,
                         ell,
-                        opt_profile,
                         acceleration_case,
+                        mtf_profile=mtf_profile,
                     ):
-                        if mtf_profile.total_job_count != job_count:
-                            continue
                         # Materialize the branch into a concrete experiment case.
                         case = ExperimentCase(
                             experiment_name=config.name,

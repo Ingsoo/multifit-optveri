@@ -28,7 +28,7 @@ class ExperimentTests(unittest.TestCase):
         }
         self.assertEqual(actual, expected)
 
-    def test_case_enumeration_follows_case_mtfo_opto_branching(self) -> None:
+    def test_case_enumeration_follows_case_mtf_then_opt_branching(self) -> None:
         config = ExperimentConfig(
             name="paper_base",
             target_ratio=parse_ratio("20/17"),
