@@ -51,6 +51,35 @@ class ExperimentTests(unittest.TestCase):
         self.assertTrue(all(case.opt_profile is not None for case in cases))
         self.assertTrue(all(case.case_id.startswith("c1_m08_n024_e09_") for case in cases))
 
+    def test_case_enumeration_prefilters_machine_job_and_acceleration_case(self) -> None:
+        config = ExperimentConfig(
+            name="paper_base",
+            target_ratio=parse_ratio("20/17"),
+            machine_values=(8, 9),
+            derive_job_counts=True,
+            explicit_job_counts=(),
+            acceleration_cases=(AccelerationCase.CASE_1, AccelerationCase.CASE_2),
+            output_root=Path("results"),
+            write_lp=False,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(),
+        )
+
+        cases = enumerate_cases(
+            config,
+            machine=8,
+            job=24,
+            acceleration_case=AccelerationCase.CASE_1,
+            limit=5,
+        )
+
+        self.assertEqual(len(cases), 5)
+        self.assertTrue(all(case.machine_count == 8 for case in cases))
+        self.assertTrue(all(case.job_count == 24 for case in cases))
+        self.assertTrue(
+            all(case.acceleration_case is AccelerationCase.CASE_1 for case in cases)
+        )
+
     def test_case_output_dir_uses_run_root_when_present(self) -> None:
         case = ExperimentCase(
             experiment_name="paper_base",

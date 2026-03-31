@@ -112,7 +112,14 @@ def derive_job_bounds(machine_count: int, target_ratio: Fraction) -> JobBounds:
     return JobBounds(lower=lower, upper=upper)
 
 
-def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
+def enumerate_cases(
+    config: ExperimentConfig,
+    *,
+    machine: int | None = None,
+    job: int | None = None,
+    acceleration_case: AccelerationCase | None = None,
+    limit: int | None = None,
+) -> list[ExperimentCase]:
     """Expand one experiment config into the full list of branched cases.
 
     Read this function side by side with the paper pseudocode:
@@ -125,7 +132,16 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
 
     cases: list[ExperimentCase] = []
     seen_branch_signatures: set[tuple[object, ...]] = set()
-    for machine_count in config.machine_values:
+    machine_values = tuple(
+        value for value in config.machine_values if machine is None or value == machine
+    )
+    acceleration_cases = tuple(
+        value
+        for value in config.acceleration_cases
+        if acceleration_case is None or value is acceleration_case
+    )
+
+    for machine_count in machine_values:
         # First restrict the feasible n range for this value of m.
         bounds = derive_job_bounds(machine_count, config.target_ratio)
         allowed_job_counts = (
@@ -133,9 +149,13 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
             if config.explicit_job_counts
             else set(range(bounds.lower, bounds.upper + 1))
         )
+        if job is not None:
+            if job not in allowed_job_counts:
+                continue
+            allowed_job_counts = {job}
 
-        for acceleration_case in config.acceleration_cases:
-            if acceleration_case is AccelerationCase.BASE:
+        for current_acceleration_case in acceleration_cases:
+            if current_acceleration_case is AccelerationCase.BASE:
                 # Base mode corresponds to Section 4 only: no ell/profile
                 # branching, just enumerate plain (m, n) instances.
                 for job_count in sorted(allowed_job_counts):
@@ -144,7 +164,7 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                             experiment_name=config.name,
                             machine_count=machine_count,
                             job_count=job_count,
-                            acceleration_case=acceleration_case,
+                            acceleration_case=current_acceleration_case,
                             ell=None,
                             mtf_profile=None,
                             opt_profile=None,
@@ -155,19 +175,21 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                             solver=config.solver,
                         )
                     )
+                    if limit is not None and len(cases) >= limit:
+                        return cases
                 continue
 
             # Acceleration mode corresponds to Section 5:
             # ell -> MTF profile -> OPT profile.
             for ell in ell_iterator(
                 machine_count,
-                acceleration_case,
+                current_acceleration_case,
                 max_job_count=bounds.upper,
             ):
                 for mtf_profile in iter_mtf_profiles(
                     machine_count,
                     ell,
-                    acceleration_case,
+                    current_acceleration_case,
                     max_job_count=bounds.upper,
                 ):
                     job_count = mtf_profile.total_job_count
@@ -177,7 +199,7 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                     for opt_profile in iter_opt_profiles(
                         machine_count,
                         ell,
-                        acceleration_case,
+                        current_acceleration_case,
                         mtf_profile=mtf_profile,
                     ):
                         # Materialize the branch into a concrete experiment case.
@@ -185,7 +207,7 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                             experiment_name=config.name,
                             machine_count=machine_count,
                             job_count=job_count,
-                            acceleration_case=acceleration_case,
+                            acceleration_case=current_acceleration_case,
                             ell=ell,
                             mtf_profile=mtf_profile,
                             opt_profile=opt_profile,
@@ -203,6 +225,8 @@ def enumerate_cases(config: ExperimentConfig) -> list[ExperimentCase]:
                             continue
                         seen_branch_signatures.add(signature)
                         cases.append(case)
+                        if limit is not None and len(cases) >= limit:
+                            return cases
     return cases
 
 

@@ -52,7 +52,9 @@ multifit-optveri plan --config configs/experiments/paper_base.toml
 ```
 
 The `plan` command supports the same filters as `run`, so you can inspect only the
-part of the enumeration you care about without building or solving any model:
+part of the enumeration you care about without building or solving any model.
+These filters are applied during enumeration, so `--machine 8 --acceleration-case case_1`
+really enumerates only that slice instead of building the full case list first:
 
 ```powershell
 multifit-optveri plan --config configs/experiments/paper_base.toml --machine 8
@@ -97,7 +99,7 @@ You can also use the wrapper:
 If you want to debug the outer branching logic itself, use `plan`, not `run`.
 `plan` executes:
 
-`case -> m -> ell -> OPT profile -> MTF profile`
+`case -> m -> ell -> MTF profile -> OPT profile`
 
 but stops before any Gurobi model is built.
 
@@ -123,8 +125,8 @@ The most useful breakpoint locations are:
 
 - the `machine_count` loop in `enumerate_cases`
 - the `ell_iterator(...)` loop
-- the `iter_opt_profiles(...)` loop
 - the `iter_mtf_profiles(...)` loop
+- the `iter_opt_profiles(...)` loop
 - the duplicate-branch check at `_branch_signature(case)`
 
 ## Tests
@@ -155,6 +157,7 @@ The file `results/<experiment-name>/latest_run.txt` points to the most recent ru
 ## Notes
 
 - The execution flow now follows the paper's branching logic more closely: `case -> m -> ell -> MTF profile -> OPT profile -> MIQP`.
+- CLI filters such as `--machine`, `--job`, `--acceleration-case`, and `--limit` are applied during enumeration.
 - The current model builder still enforces only the common acceleration cuts and the top-level `p_n` partition inside the MIQP.
 - Profile-specific structural cuts are the next layer to encode directly in the model.
 - Result files are grouped by run under `results/<experiment-name>/<timestamp>/`.

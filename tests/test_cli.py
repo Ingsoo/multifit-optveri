@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from fractions import Fraction
 from io import StringIO
 from pathlib import Path
@@ -54,9 +53,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("Enumerating cases...", output.getvalue())
         self.assertIn("Total cases:", output.getvalue())
 
-    def test_main_plan_applies_filters(self) -> None:
+    def test_main_plan_passes_filters_into_enumeration(self) -> None:
         case_a = _sample_case("a")
-        case_b = replace(case_a, machine_count=9)
         output = StringIO()
 
         with patch(
@@ -64,11 +62,18 @@ class CliTests(unittest.TestCase):
             return_value=SimpleNamespace(),
         ), patch(
             "multifit_optveri.cli.enumerate_cases",
-            return_value=[case_a, case_b],
-        ), contextlib.redirect_stdout(output):
+            return_value=[case_a],
+        ) as enumerate_cases_mock, contextlib.redirect_stdout(output):
             exit_code = main(["plan", "--config", "dummy.toml", "--machine", "8", "--limit", "1"])
 
         self.assertEqual(exit_code, 0)
+        enumerate_cases_mock.assert_called_once_with(
+            unittest.mock.ANY,
+            machine=8,
+            job=None,
+            acceleration_case=None,
+            limit=1,
+        )
         self.assertIn("Total cases: 1", output.getvalue())
         self.assertIn("m=8", output.getvalue())
 
@@ -116,7 +121,7 @@ class CliTests(unittest.TestCase):
                 exit_code = main(["run", "--config", "dummy.toml", "--machine", "8"])
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("Matched 1 case(s) after CLI filtering.", output.getvalue())
+        self.assertIn("Enumerated 1 case(s) matching CLI filters.", output.getvalue())
         self.assertIn("Running 1 case(s)...", output.getvalue())
         self.assertIn("Run directory:", output.getvalue())
 

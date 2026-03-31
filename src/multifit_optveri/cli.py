@@ -60,16 +60,22 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Loading config: {args.config}", flush=True)
     config = load_experiment_config(args.config)
     print("Enumerating cases...", flush=True)
-    cases = enumerate_cases(config)
-    print(f"Enumerated {len(cases)} case(s) before CLI filtering.", flush=True)
-    filtered_cases = _filter_cases(
-        cases,
-        args.machine,
-        args.job,
-        args.acceleration_case,
-        args.limit,
+    selected_acceleration_case = (
+        AccelerationCase(args.acceleration_case)
+        if args.acceleration_case is not None
+        else None
     )
-    print(f"Matched {len(filtered_cases)} case(s) after CLI filtering.", flush=True)
+    filtered_cases = enumerate_cases(
+        config,
+        machine=args.machine,
+        job=args.job,
+        acceleration_case=selected_acceleration_case,
+        limit=args.limit,
+    )
+    print(
+        f"Enumerated {len(filtered_cases)} case(s) matching CLI filters.",
+        flush=True,
+    )
 
     if args.command == "plan":
         print(render_case_plan(filtered_cases))
