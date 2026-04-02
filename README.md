@@ -94,6 +94,58 @@ You can also use the wrapper:
 .\scripts\run_case.cmd 8 24
 ```
 
+## Plotting MULTIFIT vs OPT Schedules
+
+There is also a standalone utility for taking an explicit processing-time list,
+running a classic MULTIFIT schedule and an exact OPT min-max schedule, and
+rendering the two schedules side by side.
+
+Module location:
+
+- `src/multifit_optveri/schedules.py`
+
+Script entrypoints:
+
+- `scripts/plot_schedules.py`
+- `scripts/plot_schedules.cmd`
+
+If you want the figure output, install the optional plotting dependency:
+
+```powershell
+python -m pip install -e ".[gurobi,viz]"
+```
+
+Example:
+
+```powershell
+python scripts/plot_schedules.py --machines 2 --jobs 4,3,2,1 --output artifacts/schedule_comparison.png
+```
+
+If you have a longer instance, put the processing times in a text file and pass
+the file instead of typing the full list on the command line. The file may use
+commas, spaces, semicolons, or one job per line.
+
+Example `jobs_26.txt`:
+
+```text
+9/17
+7/17
+6/17
+5/17
+5/17
+...
+```
+
+Then run:
+
+```powershell
+python scripts/plot_schedules.py --machines 8 --jobs-file jobs_26.txt --output artifacts/m8_j26.png
+```
+
+The script prints both schedules in text form and saves a PNG figure. The
+processing times may be integers, decimals, or fractions such as
+`9/17,7/17,6/17,5/17`.
+
 ## Debugging enumeration
 
 If you want to debug the outer branching logic itself, use `plan`, not `run`.

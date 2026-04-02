@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 gurobi = ["gurobipy>=11.0"]
+viz = ["matplotlib>=3.8"]
 
 [project.scripts]
 multifit-optveri = "multifit_optveri.cli:main"
