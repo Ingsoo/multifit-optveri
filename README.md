@@ -156,6 +156,18 @@ python scripts/plot_schedules.py --machines 8 --jobs-file jobs_26.txt
 python scripts/plot_schedules.py --machines 8 --jobs-file inputs/schedules/jobs_26.txt --output artifacts/m8_j26.png
 ```
 
+If you want every MULTIFIT capacity attempt saved as its own figure, add:
+
+```powershell
+python scripts/plot_schedules.py --machines 8 --instance jobs_26 --save-multifit-history
+```
+
+This writes per-attempt images under `artifacts/schedules/jobs_26_history/`.
+Each attempt uses an integer capacity obtained by flooring the MULTIFIT search
+value. If an attempt does not fit within the requested machine count, the trace
+figure still shows the FFD packing by opening extra machine rows and marking the
+attempt as needing extra machines.
+
 The script prints both schedules in text form and saves a PNG figure. The processing
 times may be integers, decimals, or fractions such as `9/17,7/17,6/17,5/17`.
 In the MULTIFIT panel, each bar is labeled with both the job index and processing
