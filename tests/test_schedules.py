@@ -66,6 +66,8 @@ class ScheduleTests(unittest.TestCase):
         self.assertTrue(all(attempt.schedule is not None for attempt in result.attempts))
         self.assertIn("MULTIFIT-FFD", render_schedule_text(result))
         self.assertIn("(F)", render_schedule_text(result))
+        capacities = [attempt.capacity for attempt in result.attempts]
+        self.assertEqual(capacities, [Fraction(10, 1), Fraction(7, 1), Fraction(6, 1), Fraction(5, 1)])
 
     def test_multifit_schedule_invokes_attempt_callback(self) -> None:
         seen_attempts = []

@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 
-from multifit_optveri.math_utils import format_ratio, parse_ratio
+from multifit_optveri.math_utils import ceil_fraction, format_ratio, parse_ratio
 
 if TYPE_CHECKING:
     import gurobipy as gp
@@ -245,11 +245,11 @@ def multifit_schedule(
         raise ValueError("At least one processing time is required.")
 
     total = sum(times, start=Fraction(0, 1))
-    lower = max(max(times), total / machine_count)
-    upper = max(2 * total / machine_count, max(times))
+    lower_int = max(ceil_fraction(max(times)), ceil_fraction(total / machine_count))
+    upper_int = max(2 * ceil_fraction(total / machine_count), ceil_fraction(max(times)))
     attempts: list[MultifitAttempt] = []
 
-    upper = _floor_fraction(upper)
+    upper = Fraction(upper_int, 1)
     best_schedule = first_fit_schedule(times, machine_count, upper)
     while best_schedule is None:
         attempt = MultifitAttempt(
@@ -261,7 +261,8 @@ def multifit_schedule(
         attempts.append(attempt)
         if attempt_callback is not None:
             attempt_callback(attempt)
-        upper *= 2
+        upper_int *= 2
+        upper = Fraction(upper_int, 1)
         best_schedule = first_fit_schedule(times, machine_count, upper)
     attempt = MultifitAttempt(
         iteration=len(attempts) + 1,
@@ -273,8 +274,11 @@ def multifit_schedule(
     if attempt_callback is not None:
         attempt_callback(attempt)
 
-    for _ in range(iterations):
-        mid = _floor_fraction((lower + upper) / 2)
+    search_step = 0
+    while lower_int < upper_int and search_step < iterations:
+        search_step += 1
+        mid_int = (lower_int + upper_int) // 2
+        mid = Fraction(mid_int, 1)
         candidate = first_fit_schedule(times, machine_count, mid)
         if candidate is None:
             attempt = MultifitAttempt(
@@ -286,7 +290,7 @@ def multifit_schedule(
             attempts.append(attempt)
             if attempt_callback is not None:
                 attempt_callback(attempt)
-            lower = mid
+            lower_int = mid_int + 1
             continue
         attempt = MultifitAttempt(
             iteration=len(attempts) + 1,
@@ -297,22 +301,23 @@ def multifit_schedule(
         attempts.append(attempt)
         if attempt_callback is not None:
             attempt_callback(attempt)
-        upper = mid
+        upper_int = mid_int
         best_schedule = candidate
 
-    upper = _floor_fraction(upper)
+    upper = Fraction(upper_int, 1)
     final_schedule = first_fit_schedule(times, machine_count, upper)
     if final_schedule is None:
         raise RuntimeError("MULTIFIT failed to produce a feasible schedule at the final upper bound.")
-    attempt = MultifitAttempt(
-        iteration=len(attempts) + 1,
-        capacity=upper,
-        feasible=True,
-        schedule=final_schedule,
-    )
-    attempts.append(attempt)
-    if attempt_callback is not None:
-        attempt_callback(attempt)
+    if not attempts or attempts[-1].capacity != upper or not attempts[-1].feasible:
+        attempt = MultifitAttempt(
+            iteration=len(attempts) + 1,
+            capacity=upper,
+            feasible=True,
+            schedule=final_schedule,
+        )
+        attempts.append(attempt)
+        if attempt_callback is not None:
+            attempt_callback(attempt)
     return ScheduleResult(
         algorithm=final_schedule.algorithm,
         machine_count=final_schedule.machine_count,
