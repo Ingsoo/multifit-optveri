@@ -121,9 +121,13 @@ Example:
 python scripts/plot_schedules.py --machines 2 --jobs 4,3,2,1 --output artifacts/schedule_comparison.png
 ```
 
-If you have a longer instance, put the processing times in a text file and pass
-the file instead of typing the full list on the command line. The file may use
-commas, spaces, semicolons, or one job per line.
+If you have a longer instance, the recommended convention is:
+
+- put the file under `inputs/schedules/`
+- use one `.txt` file per instance
+- let the script write figures to `artifacts/schedules/`
+
+The input file may use commas, spaces, semicolons, or one job per line.
 
 Example `jobs_26.txt`:
 
@@ -139,12 +143,21 @@ Example `jobs_26.txt`:
 Then run:
 
 ```powershell
-python scripts/plot_schedules.py --machines 8 --jobs-file jobs_26.txt --output artifacts/m8_j26.png
+python scripts/plot_schedules.py --machines 8 --instance jobs_26
 ```
 
-The script prints both schedules in text form and saves a PNG figure. The
-processing times may be integers, decimals, or fractions such as
-`9/17,7/17,6/17,5/17`.
+This resolves `inputs/schedules/jobs_26.txt` and writes the figure to
+`artifacts/schedules/jobs_26.png`.
+
+You can still pass an explicit file path if you want:
+
+```powershell
+python scripts/plot_schedules.py --machines 8 --jobs-file jobs_26.txt
+python scripts/plot_schedules.py --machines 8 --jobs-file inputs/schedules/jobs_26.txt --output artifacts/m8_j26.png
+```
+
+The script prints both schedules in text form and saves a PNG figure. The processing
+times may be integers, decimals, or fractions such as `9/17,7/17,6/17,5/17`.
 
 ## Debugging enumeration
 

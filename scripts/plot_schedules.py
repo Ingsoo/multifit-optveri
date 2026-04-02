@@ -5,6 +5,18 @@ from pathlib import Path
 import sys
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _default_inputs_dir(root: Path) -> Path:
+    return root / "inputs" / "schedules"
+
+
+def _default_artifacts_dir(root: Path) -> Path:
+    return root / "artifacts" / "schedules"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plot MULTIFIT and OPT schedules for a given job list.")
     parser.add_argument("--machines", type=int, required=True, help="Number of identical machines.")
@@ -18,11 +30,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Text file containing processing times separated by commas, spaces, semicolons, or newlines.",
     )
+    jobs_group.add_argument(
+        "--instance",
+        help="Instance name resolved as inputs/schedules/<name>.txt.",
+    )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("artifacts") / "schedule_comparison.png",
-        help="Where to save the rendered schedule comparison PNG.",
+        default=None,
+        help="Where to save the rendered schedule comparison PNG. Defaults to artifacts/schedules/<instance>.png.",
     )
     parser.add_argument(
         "--multifit-iterations",
@@ -33,16 +49,35 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load_jobs_argument(args: argparse.Namespace) -> str:
+def _resolve_jobs_file(root: Path, jobs_file: Path) -> Path:
+    if jobs_file.is_absolute():
+        return jobs_file
+    if jobs_file.exists():
+        return jobs_file
+    candidate = _default_inputs_dir(root) / jobs_file
+    return candidate
+
+
+def _load_jobs_argument(root: Path, args: argparse.Namespace) -> tuple[str, str]:
     if args.jobs is not None:
-        return args.jobs
+        return args.jobs, "inline_jobs"
+    if args.instance is not None:
+        instance_path = _default_inputs_dir(root) / f"{args.instance}.txt"
+        return instance_path.read_text(encoding="utf-8"), args.instance
     if args.jobs_file is None:
-        raise ValueError("Either --jobs or --jobs-file must be provided.")
-    return args.jobs_file.read_text(encoding="utf-8")
+        raise ValueError("One of --jobs, --jobs-file, or --instance must be provided.")
+    jobs_path = _resolve_jobs_file(root, args.jobs_file)
+    return jobs_path.read_text(encoding="utf-8"), jobs_path.stem
+
+
+def _resolve_output_path(root: Path, args: argparse.Namespace, instance_label: str) -> Path:
+    if args.output is not None:
+        return args.output
+    return _default_artifacts_dir(root) / f"{instance_label}.png"
 
 
 def main(argv: list[str] | None = None) -> int:
-    root = Path(__file__).resolve().parents[1]
+    root = _repo_root()
     src = root / "src"
     if str(src) not in sys.path:
         sys.path.insert(0, str(src))
@@ -59,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    processing_times = parse_processing_times(_load_jobs_argument(args))
+    jobs_text, instance_label = _load_jobs_argument(root, args)
+    processing_times = parse_processing_times(jobs_text)
     multifit = multifit_schedule(
         processing_times,
         args.machines,
@@ -70,7 +106,12 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(processing_times)} jobs on {args.machines} machines | "
         f"MULTIFIT={format_ratio(multifit.makespan)} vs OPT={format_ratio(optimum.makespan)}"
     )
-    output_path = plot_schedule_comparison(multifit, optimum, args.output, title=title)
+    output_path = plot_schedule_comparison(
+        multifit,
+        optimum,
+        _resolve_output_path(root, args, instance_label),
+        title=title,
+    )
 
     print(render_schedule_text(multifit))
     print()
