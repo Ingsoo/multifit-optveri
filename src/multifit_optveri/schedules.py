@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Sequence
 from multifit_optveri.math_utils import format_ratio, parse_ratio
 
 if TYPE_CHECKING:
+    import gurobipy as gp
     from gurobipy import GRB
     from gurobipy import Model as GurobiModel
 else:
@@ -218,8 +219,7 @@ def solve_opt_schedule(
         machine_jobs[machine_index] = assigned_jobs
 
     machine_loads = [
-        sum((job.processing_time for job in assigned_jobs), start=Fraction(0, 1))
-        for assigned_jobs in machine_jobs
+        sum((job.processing_time for job in assigned_jobs), start=Fraction(0, 1)) for assigned_jobs in machine_jobs
     ]
     sorted_jobs = _sorted_jobs(times)
     return ScheduleResult(
