@@ -439,8 +439,6 @@ def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map:
             )
             if width >= 0.06 * x_limit:
                 label = f"j{job.job_id}\n{format_ratio(job.processing_time)}"
-                if job.is_fallback:
-                    label += "\nF"
                 ax.text(
                     left + width / 2,
                     y_value,
@@ -518,7 +516,7 @@ def plot_schedule_comparison(
     _draw_schedule_axis(axes[1], optimum, x_limit, color_map)
     axes[0].set_ylabel("Machine")
     if has_fallback:
-        axes[0].legend(handles=_fallback_legend_handles(), loc="lower right", frameon=False)
+        fig.legend(handles=_fallback_legend_handles(), loc="outside lower center", ncol=2, frameon=False)
 
     if title is not None:
         fig.suptitle(title, fontsize=13)
@@ -580,7 +578,7 @@ def plot_multifit_history(
                 color="crimson",
             )
         if has_fallback:
-            ax.legend(handles=_fallback_legend_handles(), loc="lower right", frameon=False)
+            fig.legend(handles=_fallback_legend_handles(), loc="outside lower center", ncol=2, frameon=False)
         if title_prefix is not None:
             fig.suptitle(f"{title_prefix} | Attempt {attempt.iteration}", fontsize=13)
         fig.savefig(output_path, dpi=180)
