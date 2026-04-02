@@ -167,6 +167,8 @@ Each attempt uses an integer capacity obtained by flooring the MULTIFIT search
 value. If an attempt does not fit within the requested machine count, the trace
 figure still shows the FFD packing by opening extra machine rows and marking the
 attempt as needing extra machines.
+The script also logs each MULTIFIT attempt to the console with its capacity and
+whether it fit within the requested machine count.
 
 The script prints both schedules in text form and saves a PNG figure. The processing
 times may be integers, decimals, or fractions such as `9/17,7/17,6/17,5/17`.

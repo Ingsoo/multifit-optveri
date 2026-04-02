@@ -85,6 +85,10 @@ def _resolve_output_path(root: Path, args: argparse.Namespace, instance_label: s
     return _default_artifacts_dir(root) / f"{instance_label}.png"
 
 
+def _log(message: str) -> None:
+    print(f"[plot_schedules] {message}")
+
+
 def main(argv: list[str] | None = None) -> int:
     root = _repo_root()
     src = root / "src"
@@ -105,13 +109,28 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     jobs_text, instance_label = _load_jobs_argument(root, args)
+    _log(f"Loading instance '{instance_label}'")
     processing_times = parse_processing_times(jobs_text)
+    _log(f"Parsed {len(processing_times)} jobs for {args.machines} machines")
+
+    def log_multifit_attempt(attempt) -> None:
+        status_text = "feasible" if attempt.feasible else "needs extra machine"
+        _log(
+            f"MULTIFIT attempt {attempt.iteration:02d}: "
+            f"capacity={format_ratio(attempt.capacity)} -> {status_text}"
+        )
+
+    _log("Running MULTIFIT...")
     multifit = multifit_schedule(
         processing_times,
         args.machines,
         iterations=args.multifit_iterations,
+        attempt_callback=log_multifit_attempt,
     )
+    _log(f"MULTIFIT finished with Cmax={format_ratio(multifit.makespan)}")
+    _log("Running OPT...")
     optimum = solve_opt_schedule(processing_times, args.machines)
+    _log(f"OPT finished with Cmax={format_ratio(optimum.makespan)}")
     title = (
         f"{len(processing_times)} jobs on {args.machines} machines | "
         f"MULTIFIT={format_ratio(multifit.makespan)} vs OPT={format_ratio(optimum.makespan)}"
@@ -124,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     history_paths: tuple[Path, ...] = ()
     if args.save_multifit_history:
+        _log("Saving MULTIFIT history figures...")
         history_paths = plot_multifit_history(
             multifit,
             _default_history_dir(root, instance_label),

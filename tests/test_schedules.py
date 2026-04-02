@@ -67,6 +67,22 @@ class ScheduleTests(unittest.TestCase):
         self.assertIn("MULTIFIT-FFD", render_schedule_text(result))
         self.assertIn("(F)", render_schedule_text(result))
 
+    def test_multifit_schedule_invokes_attempt_callback(self) -> None:
+        seen_attempts = []
+
+        result = multifit_schedule(
+            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
+            2,
+            iterations=4,
+            attempt_callback=seen_attempts.append,
+        )
+
+        self.assertEqual(len(seen_attempts), len(result.attempts))
+        self.assertEqual(
+            [attempt.iteration for attempt in seen_attempts],
+            list(range(1, len(seen_attempts) + 1)),
+        )
+
     @unittest.skipIf(schedules.GRB is None, "gurobipy is unavailable")
     def test_opt_schedule_solves_minmax_assignment(self) -> None:
         result = solve_opt_schedule(

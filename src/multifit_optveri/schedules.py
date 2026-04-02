@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 
 from multifit_optveri.math_utils import format_ratio, parse_ratio
 
@@ -231,6 +231,7 @@ def multifit_schedule(
     machine_count: int,
     *,
     iterations: int = 30,
+    attempt_callback: Callable[[MultifitAttempt], None] | None = None,
 ) -> ScheduleResult:
     """Run the classic MULTIFIT binary search with FFD feasibility checks."""
 
@@ -251,47 +252,51 @@ def multifit_schedule(
     upper = _floor_fraction(upper)
     best_schedule = first_fit_schedule(times, machine_count, upper)
     while best_schedule is None:
-        attempts.append(
-            MultifitAttempt(
-                iteration=len(attempts) + 1,
-                capacity=upper,
-                feasible=False,
-                schedule=first_fit_overflow_schedule(times, machine_count, upper),
-            )
-        )
-        upper *= 2
-        best_schedule = first_fit_schedule(times, machine_count, upper)
-    attempts.append(
-        MultifitAttempt(
+        attempt = MultifitAttempt(
             iteration=len(attempts) + 1,
             capacity=upper,
-            feasible=True,
-            schedule=best_schedule,
+            feasible=False,
+            schedule=first_fit_overflow_schedule(times, machine_count, upper),
         )
+        attempts.append(attempt)
+        if attempt_callback is not None:
+            attempt_callback(attempt)
+        upper *= 2
+        best_schedule = first_fit_schedule(times, machine_count, upper)
+    attempt = MultifitAttempt(
+        iteration=len(attempts) + 1,
+        capacity=upper,
+        feasible=True,
+        schedule=best_schedule,
     )
+    attempts.append(attempt)
+    if attempt_callback is not None:
+        attempt_callback(attempt)
 
     for _ in range(iterations):
         mid = _floor_fraction((lower + upper) / 2)
         candidate = first_fit_schedule(times, machine_count, mid)
         if candidate is None:
-            attempts.append(
-                MultifitAttempt(
-                    iteration=len(attempts) + 1,
-                    capacity=mid,
-                    feasible=False,
-                    schedule=first_fit_overflow_schedule(times, machine_count, mid),
-                )
-            )
-            lower = mid
-            continue
-        attempts.append(
-            MultifitAttempt(
+            attempt = MultifitAttempt(
                 iteration=len(attempts) + 1,
                 capacity=mid,
-                feasible=True,
-                schedule=candidate,
+                feasible=False,
+                schedule=first_fit_overflow_schedule(times, machine_count, mid),
             )
+            attempts.append(attempt)
+            if attempt_callback is not None:
+                attempt_callback(attempt)
+            lower = mid
+            continue
+        attempt = MultifitAttempt(
+            iteration=len(attempts) + 1,
+            capacity=mid,
+            feasible=True,
+            schedule=candidate,
         )
+        attempts.append(attempt)
+        if attempt_callback is not None:
+            attempt_callback(attempt)
         upper = mid
         best_schedule = candidate
 
@@ -299,14 +304,15 @@ def multifit_schedule(
     final_schedule = first_fit_schedule(times, machine_count, upper)
     if final_schedule is None:
         raise RuntimeError("MULTIFIT failed to produce a feasible schedule at the final upper bound.")
-    attempts.append(
-        MultifitAttempt(
-            iteration=len(attempts) + 1,
-            capacity=upper,
-            feasible=True,
-            schedule=final_schedule,
-        )
+    attempt = MultifitAttempt(
+        iteration=len(attempts) + 1,
+        capacity=upper,
+        feasible=True,
+        schedule=final_schedule,
     )
+    attempts.append(attempt)
+    if attempt_callback is not None:
+        attempt_callback(attempt)
     return ScheduleResult(
         algorithm=final_schedule.algorithm,
         machine_count=final_schedule.machine_count,
