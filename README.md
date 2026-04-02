@@ -132,6 +132,7 @@ The input file may use commas, spaces, semicolons, or one job per line.
 Example `jobs_26.txt`:
 
 ```text
+machines=8
 9/17
 7/17
 6/17
@@ -155,6 +156,17 @@ You can still pass an explicit file path if you want:
 python scripts/plot_schedules.py --machines 8 --jobs-file jobs_26.txt
 python scripts/plot_schedules.py --machines 8 --jobs-file inputs/schedules/jobs_26.txt --output artifacts/m8_j26.png
 ```
+
+Batch mode is also available. For example, after creating `demo_01.txt` through
+`demo_10.txt` under `inputs/schedules/`, you can render all of them in one run:
+
+```cmd
+scripts\plot_schedules.cmd --batch demo_
+```
+
+When an instance file starts with a line such as `machines=8`, that machine
+count is read from the file, so batch runs can mix instances with different
+machine counts.
 
 If you want every MULTIFIT capacity attempt saved as its own figure, add:
 

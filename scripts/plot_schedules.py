@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import sys
 
 
@@ -23,7 +24,12 @@ def _default_history_dir(root: Path, instance_label: str) -> Path:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plot MULTIFIT and OPT schedules for a given job list.")
-    parser.add_argument("--machines", type=int, required=True, help="Number of identical machines.")
+    parser.add_argument(
+        "--machines",
+        type=int,
+        default=None,
+        help="Number of identical machines. Optional when the instance file contains 'machines=<int>'.",
+    )
     jobs_group = parser.add_mutually_exclusive_group(required=True)
     jobs_group.add_argument(
         "--jobs",
@@ -37,6 +43,15 @@ def _build_parser() -> argparse.ArgumentParser:
     jobs_group.add_argument(
         "--instance",
         help="Instance name resolved as inputs/schedules/<name>.txt.",
+    )
+    jobs_group.add_argument(
+        "--instances",
+        nargs="+",
+        help="Batch mode: resolve multiple instance names from inputs/schedules/<name>.txt.",
+    )
+    jobs_group.add_argument(
+        "--batch",
+        help="Batch mode by pattern or prefix, e.g. 'demo', 'demo_*', or 'jobs_32_mce_*'.",
     )
     parser.add_argument(
         "--output",
@@ -67,14 +82,68 @@ def _resolve_jobs_file(root: Path, jobs_file: Path) -> Path:
     return candidate
 
 
+def _resolve_batch_paths(root: Path, batch: str) -> tuple[Path, ...]:
+    inputs_dir = _default_inputs_dir(root)
+    pattern = batch
+    if not any(token in batch for token in "*?[]"):
+        pattern = f"{batch}*.txt"
+    elif not batch.endswith(".txt"):
+        pattern = f"{batch}.txt"
+    paths = tuple(sorted(inputs_dir.glob(pattern)))
+    if not paths:
+        raise FileNotFoundError(f"No instance files matched batch pattern '{batch}' in {inputs_dir}.")
+    return paths
+
+
+def _parse_instance_text(raw_text: str) -> tuple[int | None, str]:
+    lines = raw_text.splitlines()
+    machine_count: int | None = None
+    body_lines: list[str] = []
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = re.fullmatch(r"(?:machines|machine|m)\s*[:=]\s*(\d+)", stripped, flags=re.IGNORECASE)
+        if index == 0 and match is not None:
+            machine_count = int(match.group(1))
+            continue
+        body_lines.append(line)
+
+    return machine_count, "\n".join(body_lines)
+
+
+def _resolve_machine_count(
+    args: argparse.Namespace,
+    file_machine_count: int | None,
+    instance_label: str,
+) -> int:
+    if file_machine_count is not None and args.machines is not None and file_machine_count != args.machines:
+        raise ValueError(
+            f"Instance '{instance_label}' declares machines={file_machine_count}, "
+            f"but CLI requested --machines {args.machines}."
+        )
+    if file_machine_count is not None:
+        return file_machine_count
+    if args.machines is not None:
+        return args.machines
+    raise ValueError(
+        f"Instance '{instance_label}' does not declare a machine count and --machines was not provided."
+    )
+
+
 def _load_jobs_argument(root: Path, args: argparse.Namespace) -> tuple[str, str]:
     if args.jobs is not None:
         return args.jobs, "inline_jobs"
     if args.instance is not None:
         instance_path = _default_inputs_dir(root) / f"{args.instance}.txt"
         return instance_path.read_text(encoding="utf-8"), args.instance
+    if args.instances is not None:
+        raise ValueError("Use batch mode helpers for --instances.")
+    if args.batch is not None:
+        raise ValueError("Use batch mode helpers for --batch.")
     if args.jobs_file is None:
-        raise ValueError("One of --jobs, --jobs-file, or --instance must be provided.")
+        raise ValueError("One of --jobs, --jobs-file, --instance, --instances, or --batch must be provided.")
     jobs_path = _resolve_jobs_file(root, args.jobs_file)
     return jobs_path.read_text(encoding="utf-8"), jobs_path.stem
 
@@ -89,12 +158,13 @@ def _log(message: str) -> None:
     print(f"[plot_schedules] {message}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    root = _repo_root()
-    src = root / "src"
-    if str(src) not in sys.path:
-        sys.path.insert(0, str(src))
-
+def _run_instance(
+    root: Path,
+    args: argparse.Namespace,
+    *,
+    jobs_text: str,
+    instance_label: str,
+) -> int:
     from multifit_optveri.math_utils import format_ratio
     from multifit_optveri.schedules import (
         multifit_schedule,
@@ -105,13 +175,11 @@ def main(argv: list[str] | None = None) -> int:
         solve_opt_schedule,
     )
 
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    jobs_text, instance_label = _load_jobs_argument(root, args)
+    file_machine_count, parsed_jobs_text = _parse_instance_text(jobs_text)
+    machine_count = _resolve_machine_count(args, file_machine_count, instance_label)
     _log(f"Loading instance '{instance_label}'")
-    processing_times = parse_processing_times(jobs_text)
-    _log(f"Parsed {len(processing_times)} jobs for {args.machines} machines")
+    processing_times = parse_processing_times(parsed_jobs_text)
+    _log(f"Parsed {len(processing_times)} jobs for {machine_count} machines")
 
     def log_multifit_attempt(attempt) -> None:
         status_text = "feasible" if attempt.feasible else "needs extra machine"
@@ -123,16 +191,16 @@ def main(argv: list[str] | None = None) -> int:
     _log("Running MULTIFIT...")
     multifit = multifit_schedule(
         processing_times,
-        args.machines,
+        machine_count,
         iterations=args.multifit_iterations,
         attempt_callback=log_multifit_attempt,
     )
     _log(f"MULTIFIT finished with Cmax={format_ratio(multifit.makespan)}")
     _log("Running OPT...")
-    optimum = solve_opt_schedule(processing_times, args.machines)
+    optimum = solve_opt_schedule(processing_times, machine_count)
     _log(f"OPT finished with Cmax={format_ratio(optimum.makespan)}")
     title = (
-        f"{len(processing_times)} jobs on {args.machines} machines | "
+        f"{len(processing_times)} jobs on {machine_count} machines | "
         f"MULTIFIT={format_ratio(multifit.makespan)} vs OPT={format_ratio(optimum.makespan)}"
     )
     output_path = plot_schedule_comparison(
@@ -147,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
         history_paths = plot_multifit_history(
             multifit,
             _default_history_dir(root, instance_label),
-            title_prefix=f"{instance_label} on {args.machines} machines",
+            title_prefix=f"{instance_label} on {machine_count} machines",
         )
 
     print(render_schedule_text(multifit))
@@ -158,6 +226,42 @@ def main(argv: list[str] | None = None) -> int:
     if history_paths:
         print(f"MULTIFIT history saved to: {_default_history_dir(root, instance_label)}")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    root = _repo_root()
+    src = root / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.instances is not None:
+        if args.output is not None:
+            raise SystemExit("--output cannot be used with --instances. Use per-instance default outputs instead.")
+        for instance_label in args.instances:
+            instance_path = _default_inputs_dir(root) / f"{instance_label}.txt"
+            jobs_text = instance_path.read_text(encoding="utf-8")
+            _run_instance(root, args, jobs_text=jobs_text, instance_label=instance_label)
+            print()
+        return 0
+
+    if args.batch is not None:
+        if args.output is not None:
+            raise SystemExit("--output cannot be used with --batch. Use per-instance default outputs instead.")
+        for instance_path in _resolve_batch_paths(root, args.batch):
+            _run_instance(
+                root,
+                args,
+                jobs_text=instance_path.read_text(encoding="utf-8"),
+                instance_label=instance_path.stem,
+            )
+            print()
+        return 0
+
+    jobs_text, instance_label = _load_jobs_argument(root, args)
+    return _run_instance(root, args, jobs_text=jobs_text, instance_label=instance_label)
 
 
 if __name__ == "__main__":
