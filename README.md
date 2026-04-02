@@ -158,6 +158,9 @@ python scripts/plot_schedules.py --machines 8 --jobs-file inputs/schedules/jobs_
 
 The script prints both schedules in text form and saves a PNG figure. The processing
 times may be integers, decimals, or fractions such as `9/17,7/17,6/17,5/17`.
+In the MULTIFIT panel, each bar is labeled with both the job index and processing
+time, and fallback jobs are highlighted with a red hatched border while regular
+jobs use a standard black border.
 
 ## Debugging enumeration
 

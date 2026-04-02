@@ -30,6 +30,8 @@ class SchedulingUnavailableError(RuntimeError):
 class ScheduledJob:
     job_id: int
     processing_time: Fraction
+    assignment_step: int | None = None
+    is_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,13 +92,26 @@ def first_fit_schedule(
     jobs = _sorted_jobs(processing_times)
     machine_jobs: list[list[ScheduledJob]] = [[] for _ in range(machine_count)]
     machine_loads: list[Fraction] = [Fraction(0, 1) for _ in range(machine_count)]
+    machine_opened: list[bool] = [False for _ in range(machine_count)]
 
-    for job in jobs:
+    for assignment_step, job in enumerate(jobs, start=1):
         assigned = False
         for machine_index in range(machine_count):
             if machine_loads[machine_index] + job.processing_time <= capacity:
-                machine_jobs[machine_index].append(job)
+                is_fallback = bool(machine_jobs[machine_index]) and any(
+                    machine_opened[later_machine_index]
+                    for later_machine_index in range(machine_index + 1, machine_count)
+                )
+                machine_jobs[machine_index].append(
+                    ScheduledJob(
+                        job_id=job.job_id,
+                        processing_time=job.processing_time,
+                        assignment_step=assignment_step,
+                        is_fallback=is_fallback,
+                    )
+                )
                 machine_loads[machine_index] += job.processing_time
+                machine_opened[machine_index] = True
                 assigned = True
                 break
         if not assigned:
@@ -263,6 +278,7 @@ def plot_schedule_comparison(
     job_ids = sorted({job.job_id for machine in multifit.machines + optimum.machines for job in machine.jobs})
     cmap = plt.get_cmap("tab20")
     color_map = {job_id: cmap((job_id - 1) % cmap.N) for job_id in job_ids}
+    legend_handles = None
 
     fig, axes = plt.subplots(
         nrows=1,
@@ -273,28 +289,32 @@ def plot_schedule_comparison(
     )
 
     def draw(ax, schedule: ScheduleResult) -> None:
+        nonlocal legend_handles
         y_positions = list(range(machine_count, 0, -1))
         for y_value, machine in zip(y_positions, schedule.machines):
             left = 0.0
             for job in machine.jobs:
                 width = float(job.processing_time)
+                edge_color = "crimson" if job.is_fallback else "black"
+                hatch = "//" if job.is_fallback else ""
                 ax.barh(
                     y_value,
                     width,
                     left=left,
                     height=0.72,
                     color=color_map[job.job_id],
-                    edgecolor="black",
-                    linewidth=0.8,
+                    edgecolor=edge_color,
+                    linewidth=1.5 if job.is_fallback else 0.8,
+                    hatch=hatch,
                 )
                 if width >= 0.06 * x_limit:
                     ax.text(
                         left + width / 2,
                         y_value,
-                        str(job.job_id),
+                        f"j{job.job_id}\n{format_ratio(job.processing_time)}",
                         ha="center",
                         va="center",
-                        fontsize=9,
+                        fontsize=8,
                         color="black",
                     )
                 left += width
@@ -310,10 +330,26 @@ def plot_schedule_comparison(
             ax.axvline(float(schedule.feasibility_capacity), color="crimson", linestyle=":", linewidth=1.5)
         ax.set_title(subtitle)
         ax.set_xlabel("Load")
+        if schedule.algorithm.startswith("MULTIFIT") and legend_handles is None:
+            legend_handles = [
+                plt.Rectangle((0, 0), 1, 1, facecolor="lightgray", edgecolor="black", linewidth=0.8, label="Regular"),
+                plt.Rectangle(
+                    (0, 0),
+                    1,
+                    1,
+                    facecolor="lightgray",
+                    edgecolor="crimson",
+                    linewidth=1.5,
+                    hatch="//",
+                    label="Fallback",
+                ),
+            ]
 
     draw(axes[0], multifit)
     draw(axes[1], optimum)
     axes[0].set_ylabel("Machine")
+    if legend_handles is not None:
+        fig.legend(handles=legend_handles, loc="upper center", ncol=2, frameon=False)
 
     if title is not None:
         fig.suptitle(title, fontsize=13)
@@ -330,6 +366,10 @@ def render_schedule_text(schedule: ScheduleResult) -> str:
     if schedule.feasibility_capacity is not None:
         lines[0] += f", cap={format_ratio(schedule.feasibility_capacity)}"
     for machine in schedule.machines:
-        jobs_text = ", ".join(f"j{job.job_id}:{format_ratio(job.processing_time)}" for job in machine.jobs)
+        jobs_text = ", ".join(
+            f"j{job.job_id}:{format_ratio(job.processing_time)}"
+            f"({'F' if job.is_fallback else 'R'})"
+            for job in machine.jobs
+        )
         lines.append(f"  M{machine.machine_id} [{format_ratio(machine.load)}]: {jobs_text}")
     return "\n".join(lines)
