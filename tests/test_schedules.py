@@ -12,6 +12,7 @@ from multifit_optveri.schedules import (
     multifit_schedule,
     parse_processing_times,
     plot_schedule_comparison,
+    plot_multifit_history,
     render_schedule_text,
     solve_opt_schedule,
 )
@@ -60,6 +61,9 @@ class ScheduleTests(unittest.TestCase):
         self.assertLessEqual(result.makespan, Fraction(5, 1))
         self.assertEqual(result.machine_count, 2)
         self.assertIsNotNone(result.feasibility_capacity)
+        self.assertTrue(result.attempts)
+        self.assertTrue(all(attempt.capacity.denominator == 1 for attempt in result.attempts))
+        self.assertTrue(all(attempt.schedule is not None for attempt in result.attempts))
         self.assertIn("MULTIFIT-FFD", render_schedule_text(result))
         self.assertIn("(F)", render_schedule_text(result))
 
@@ -102,6 +106,24 @@ class ScheduleTests(unittest.TestCase):
 
             self.assertEqual(written_path, output_path)
             self.assertTrue(output_path.exists())
+
+    def test_plot_multifit_history_writes_attempt_pngs_when_matplotlib_is_available(self) -> None:
+        multifit = multifit_schedule(
+            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
+            2,
+            iterations=4,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "history"
+            try:
+                written_paths = plot_multifit_history(multifit, output_dir, title_prefix="demo")
+            except SchedulingUnavailableError:
+                self.skipTest("matplotlib is unavailable")
+                return
+
+            self.assertEqual(len(written_paths), len(multifit.attempts))
+            self.assertTrue(all(path.exists() for path in written_paths))
 
 
 if __name__ == "__main__":

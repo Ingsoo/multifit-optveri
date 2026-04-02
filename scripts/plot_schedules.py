@@ -17,6 +17,10 @@ def _default_artifacts_dir(root: Path) -> Path:
     return root / "artifacts" / "schedules"
 
 
+def _default_history_dir(root: Path, instance_label: str) -> Path:
+    return _default_artifacts_dir(root) / f"{instance_label}_history"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plot MULTIFIT and OPT schedules for a given job list.")
     parser.add_argument("--machines", type=int, required=True, help="Number of identical machines.")
@@ -45,6 +49,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=30,
         help="Number of MULTIFIT binary-search iterations.",
+    )
+    parser.add_argument(
+        "--save-multifit-history",
+        action="store_true",
+        help="Save one PNG per MULTIFIT capacity attempt under artifacts/schedules/<instance>_history/.",
     )
     return parser
 
@@ -87,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         multifit_schedule,
         parse_processing_times,
         plot_schedule_comparison,
+        plot_multifit_history,
         render_schedule_text,
         solve_opt_schedule,
     )
@@ -112,12 +122,21 @@ def main(argv: list[str] | None = None) -> int:
         _resolve_output_path(root, args, instance_label),
         title=title,
     )
+    history_paths: tuple[Path, ...] = ()
+    if args.save_multifit_history:
+        history_paths = plot_multifit_history(
+            multifit,
+            _default_history_dir(root, instance_label),
+            title_prefix=f"{instance_label} on {args.machines} machines",
+        )
 
     print(render_schedule_text(multifit))
     print()
     print(render_schedule_text(optimum))
     print()
     print(f"Figure saved to: {output_path}")
+    if history_paths:
+        print(f"MULTIFIT history saved to: {_default_history_dir(root, instance_label)}")
     return 0
 
 
