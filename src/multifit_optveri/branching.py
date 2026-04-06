@@ -17,7 +17,7 @@ class MtfProfile:
     """Coarse MTF machine-type profile used by the outer branch decomposition.
 
     The tuple fields correspond to consecutive machine blocks:
-    (F1, R2, F2, R3, F3, R4, M5).
+    (F1, R2, F2, R3, F3, R4, F4, M5).
     """
 
     m1f: int = 0
@@ -26,19 +26,22 @@ class MtfProfile:
     m3r: int = 0
     m3f: int = 0
     m4: int = 0
+    m4f: int = 0
     m5: int = 0
 
     @property
     def machine_count(self) -> int:
         """Total number of machines represented by this profile."""
 
-        return self.m1f + self.m2r + self.m2f + self.m3r + self.m3f + self.m4 + self.m5
+        return self.m1f + self.m2r + self.m2f + self.m3r + self.m3f + self.m4 + self.m4f + self.m5
 
     @property
     def scheduled_job_count(self) -> int:
         """Number of jobs that MTF successfully places before job n fails."""
 
-        return 2 * (self.m1f + self.m2r) + 3 * (self.m2f + self.m3r) + 4 * (self.m3f + self.m4) + 5 * self.m5
+        return (
+            2 * (self.m1f + self.m2r) + 3 * (self.m2f + self.m3r) + 4 * (self.m3f + self.m4) + 5 * (self.m4f + self.m5)
+        )
 
     @property
     def total_job_count(self) -> int:
@@ -47,14 +50,17 @@ class MtfProfile:
 
     @property
     def compact_id(self) -> str:
-        return f"mtf{self.m1f}{self.m2r}{self.m2f}{self.m3r}{self.m3f}{self.m4}{self.m5}"
+        return f"mtf{self.m1f}{self.m2r}{self.m2f}{self.m3r}{self.m3f}{self.m4}{self.m4f}{self.m5}"
 
     @property
     def machine_cardinalities(self) -> tuple[int, ...]:
         """Per-machine job counts in the left-to-right block order."""
 
         return (
-            (2,) * (self.m1f + self.m2r) + (3,) * (self.m2f + self.m3r) + (4,) * (self.m3f + self.m4) + (5,) * self.m5
+            (2,) * (self.m1f + self.m2r)
+            + (3,) * (self.m2f + self.m3r)
+            + (4,) * (self.m3f + self.m4)
+            + (5,) * (self.m4f + self.m5)
         )
 
     @property
@@ -80,6 +86,10 @@ class MtfProfile:
     @property
     def nR4(self) -> int:
         return self.m4
+
+    @property
+    def nF4(self) -> int:
+        return self.m4f
 
     @property
     def nM5(self) -> int:
@@ -259,32 +269,37 @@ def iter_mtf_profiles(
             nR2 = pair_total - nF2
             for nF3 in range(tail_total + 1):
                 for nR4 in range(tail_total - nF3 + 1):
-                    for nM5 in range(tail_total - nF3 - nR4 + 1):
-                        nR3 = tail_total - nF3 - nR4 - nM5
-                        profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
-                        if profile.total_job_count == target_job_count:
-                            yield profile
+                    for nF4 in range(tail_total - nF3 - nR4 + 1):
+                        for nM5 in range(tail_total - nF3 - nR4 - nF4 + 1):
+                            nR3 = tail_total - nF3 - nR4 - nF4 - nM5
+                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nM5)
+                            if profile.total_job_count == target_job_count:
+                                yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
-        # Case 2: same broad shape as Case 1, but now ell may be odd or even.
-        # The pair block still depends only on the number of long-job pairs,
-        # which is floor((ell - 1) / 2).
         pair_total = (ell - 1) // 2
         tail_total = machine_count - pair_total
         for nF2 in range(pair_total + 1):
             nR2 = pair_total - nF2
             for nF3 in range(tail_total + 1):
                 for nR4 in range(tail_total - nF3 + 1):
-                    for nM5 in range(tail_total - nF3 - nR4 + 1):
-                        nR3 = tail_total - nF3 - nR4 - nM5
-                        if all(
-                            (
-                                2 * nF2 + 7 * nF3 < 2 * machine_count - 11,
-                                6 * nM5 < 2 * machine_count - 11,
-                            )
-                        ):
-                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nM5)
+                    for nF4 in range(tail_total - nF3 - nR4 + 1):
+                        nM5 = tail_total - nF3 - nR4 - nF4
+                        # but also nM5 + nR3 = tail_total - nF3 - nR4 - nF4
+                        # and nM5 = nR3 - nF2 - 1
+                        # so 2*nM5 + nF2 + 1 = tail_total - nF3 - nR4 - nF4
+                        remainder = tail_total - nF3 - nR4 - nF4
+                        # nR3 + nM5 = remainder, nM5 = nR3 - nF2 - 1
+                        # => 2*nR3 = remainder + nF2 + 1
+                        if (remainder + nF2 + 1) % 2 != 0:
+                            continue
+                        nR3 = (remainder + nF2 + 1) // 2
+                        nM5 = nR3 - nF2 - 1
+                        if nM5 < 0 or nR3 < 0:
+                            continue
+                        if 7 * nF3 + 10 * nF4 < 2 * machine_count - 11:
+                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nM5)
                             if max_job_count is None or profile.total_job_count <= max_job_count:
                                 yield profile
         return
@@ -341,7 +356,7 @@ def _iter_case_3_profiles(
                             continue
                         for nM5 in range(machine_count - a - b - nF3 + 1):
                             nR4 = machine_count - a - b - nF3 - nM5
-                            profile = MtfProfile(nF1, nR2, nF2, nR3, nF3, nR4, nM5)
+                            profile = MtfProfile(nF1, nR2, nF2, nR3, nF3, nR4, 0, nM5)
                             if max_job_count is not None and profile.total_job_count > max_job_count:
                                 continue
                             yield profile

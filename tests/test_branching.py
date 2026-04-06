@@ -8,15 +8,16 @@ from multifit_optveri.branching import MtfProfile, OptProfile, ell_iterator, ite
 
 class BranchingTests(unittest.TestCase):
     def test_mtf_profile_properties(self) -> None:
-        profile = MtfProfile(1, 2, 1, 1, 1, 1, 1)
+        profile = MtfProfile(1, 2, 1, 1, 1, 1, 0, 1)
 
         self.assertEqual(profile.machine_count, 8)
         self.assertEqual(profile.scheduled_job_count, 25)
         self.assertEqual(profile.total_job_count, 26)
-        self.assertEqual(profile.compact_id, "mtf1211111")
+        self.assertEqual(profile.compact_id, "mtf12111101")
         self.assertEqual(profile.machine_cardinalities, (2, 2, 2, 3, 3, 4, 4, 5))
         self.assertEqual(profile.nF1, 1)
         self.assertEqual(profile.nR4, 1)
+        self.assertEqual(profile.nF4, 0)
         self.assertEqual(profile.nM5, 1)
 
     def test_opt_profile_properties(self) -> None:
@@ -91,15 +92,15 @@ class BranchingTests(unittest.TestCase):
         )
 
         self.assertTrue(all(profile.total_job_count == 24 for profile in raw_case_1_profiles))
-        self.assertEqual(len(case_1_profiles), 13)
+        self.assertEqual(len(case_1_profiles), 16)
         self.assertEqual(
             [profile.compact_id for profile in case_1_profiles[:3]],
-            ["mtf0402011", "mtf0401030", "mtf0402101"],
+            ["mtf04020101", "mtf04020110", "mtf04010300"],
         )
-        self.assertEqual(len(case_2_profiles), 3)
+        self.assertEqual(len(case_2_profiles), 4)
         self.assertEqual(
             [profile.compact_id for profile in case_2_profiles],
-            ["mtf0401030", "mtf0312020", "mtf0223010"],
+            ["mtf04010300", "mtf03120200", "mtf02230100", "mtf01340000"],
         )
 
     def test_case_3_profiles_satisfy_basic_invariants(self) -> None:
@@ -143,20 +144,32 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(
             [profile.compact_id for profile in case_31_profiles],
             [
-                "mtf0001070",
-                "mtf0002051",
-                "mtf0003032",
-                "mtf0004013",
-                "mtf0010070",
-                "mtf0011051",
-                "mtf0012032",
-                "mtf0013013",
+                "mtf00010700",
+                "mtf00020501",
+                "mtf00030302",
+                "mtf00040103",
+                "mtf00100700",
+                "mtf00110501",
+                "mtf00120302",
+                "mtf00130103",
             ],
         )
-        self.assertEqual([profile.compact_id for profile in case_32_profiles], ["mtf0010007"])
+        self.assertEqual([profile.compact_id for profile in case_32_profiles], ["mtf00100007"])
 
         for profile in case_31_profiles + case_32_profiles:
             self.assertEqual(profile.machine_count, 8)
+
+    def test_case_2_profile_space_can_explicitly_include_f4(self) -> None:
+        profiles = list(
+            iter_mtf_profiles(
+                12,
+                8,
+                AccelerationCase.CASE_2,
+                max_job_count=200,
+            )
+        )
+
+        self.assertTrue(any(profile.nF4 > 0 for profile in profiles))
 
     def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
         for acceleration_case, ell in (

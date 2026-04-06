@@ -52,7 +52,7 @@ def _sample_result(output_dir: Path, *, case_id: str = "case_a") -> SolveResult:
         machine_count=8,
         job_count=24,
         ell=9,
-        mtf_profile="(0,4,0,1,0,3,0)",
+        mtf_profile="(0,4,0,1,0,3,0,0)",
         opt_profile="(8,0,0)",
         target_ratio="20/17",
         verification_result="VERIFIED",
@@ -88,7 +88,7 @@ class RunnerTests(unittest.TestCase):
         row = _result_csv_row(_sample_result(Path("results/demo/case_a")))
 
         self.assertIn("case_id", _result_csv_fieldnames())
-        self.assertIn("mtf-profile-(f1_r2_f2_r3_f3_m4_m5)", _result_csv_fieldnames())
+        self.assertIn("mtf-profile-(f1_r2_f2_r3_f3_r4_f4_m5)", _result_csv_fieldnames())
         self.assertIn("opt-profile-(e3_e4_e5)", _result_csv_fieldnames())
         self.assertIn("verification_result", _result_csv_fieldnames())
         self.assertIn("optimal-p-values-(desc-scaled)", _result_csv_fieldnames())
@@ -96,7 +96,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(row["objective_value"], "")
         self.assertEqual(row["status"], "INFEASIBLE")
         self.assertEqual(row["verification_result"], "VERIFIED")
-        self.assertEqual(row["mtf-profile-(f1_r2_f2_r3_f3_m4_m5)"], "(0,4,0,1,0,3,0)")
+        self.assertEqual(row["mtf-profile-(f1_r2_f2_r3_f3_r4_f4_m5)"], "(0,4,0,1,0,3,0,0)")
         self.assertEqual(row["opt-profile-(e3_e4_e5)"], "(8,0,0)")
         self.assertEqual(row["optimal-p-values-(desc-scaled)"], "")
 
@@ -142,7 +142,7 @@ class RunnerTests(unittest.TestCase):
             job_count=24,
             acceleration_case=AccelerationCase.CASE_2,
             ell=10,
-            mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0),
+            mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0, 0),
             opt_profile=OptProfile(8, 0, 0),
             target_ratio=parse_ratio("20/17"),
             output_root=Path("results"),
@@ -150,7 +150,7 @@ class RunnerTests(unittest.TestCase):
             enforce_target_lower_bound=True,
             solver=SolverConfig(),
         )
-        self.assertEqual(_format_mtf_profile(profiled_case), "(0,4,0,1,0,3,0)")
+        self.assertEqual(_format_mtf_profile(profiled_case), "(0,4,0,1,0,3,0,0)")
         self.assertEqual(_format_opt_profile(profiled_case), "(8,0,0)")
 
     def test_extract_optimal_p_values_desc_only_for_optimal_status(self) -> None:
@@ -210,7 +210,7 @@ class RunnerTests(unittest.TestCase):
             summary_csv = artifacts.summary_csv_path.read_text(encoding="utf-8")
             summary_jsonl = artifacts.summary_jsonl_path.read_text(encoding="utf-8")
             self.assertIn("case_a", summary_csv)
-            self.assertIn("mtf-profile-(f1_r2_f2_r3_f3_m4_m5)", summary_csv)
+            self.assertIn("mtf-profile-(f1_r2_f2_r3_f3_r4_f4_m5)", summary_csv)
             self.assertIn("verification_result", summary_csv)
             self.assertNotIn("output_dir", summary_csv)
             self.assertIn("\"verification_result\": \"VERIFIED\"", summary_jsonl)

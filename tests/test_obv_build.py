@@ -83,7 +83,7 @@ class ObvBuildTests(unittest.TestCase):
             acceleration_case=AccelerationCase.CASE_2,
             ell=10,
             job_count=24,
-            mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0),
+            mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0, 0),
             opt_profile=OptProfile(8, 0, 0, pattern="two_long"),
         )
         built = build_obv_model(case)
@@ -111,7 +111,7 @@ class ObvBuildTests(unittest.TestCase):
             acceleration_case=AccelerationCase.CASE_1,
             ell=9,
             job_count=24,
-            mtf_profile=MtfProfile(0, 4, 0, 2, 0, 1, 1),
+            mtf_profile=MtfProfile(0, 4, 0, 2, 0, 1, 0, 1),
             opt_profile=OptProfile(8, 0, 0, pattern="case1"),
         )
         built = build_obv_model(case)
