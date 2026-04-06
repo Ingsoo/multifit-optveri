@@ -285,13 +285,11 @@ def iter_mtf_profiles(
             for nF3 in range(tail_total + 1):
                 for nR4 in range(tail_total - nF3 + 1):
                     for nF4 in range(tail_total - nF3 - nR4 + 1):
-                        nM5 = tail_total - nF3 - nR4 - nF4
-                        # but also nM5 + nR3 = tail_total - nF3 - nR4 - nF4
-                        # and nM5 = nR3 - nF2 - 1
-                        # so 2*nM5 + nF2 + 1 = tail_total - nF3 - nR4 - nF4
                         remainder = tail_total - nF3 - nR4 - nF4
-                        # nR3 + nM5 = remainder, nM5 = nR3 - nF2 - 1
-                        # => 2*nR3 = remainder + nF2 + 1
+                        # In Case 2 the tail profile additionally satisfies
+                        # nM5 + 1 = nR3 - nF2, so nR3 and nM5 are not free.
+                        # Together with nR3 + nM5 = remainder, this gives
+                        # 2*nR3 = remainder + nF2 + 1.
                         if (remainder + nF2 + 1) % 2 != 0:
                             continue
                         nR3 = (remainder + nF2 + 1) // 2
