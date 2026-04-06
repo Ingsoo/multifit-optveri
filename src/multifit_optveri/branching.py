@@ -324,13 +324,18 @@ def _iter_all_mtf_profiles(
             target_job_count = 4 * machine_count - 2 * pair_total
             if max_job_count is not None and target_job_count > max_job_count:
                 continue
-            for nF2 in range(pair_total + 1):
-                nR2 = pair_total - nF2
+            for nR2 in range(pair_total + 1):
+                nF2 = pair_total - nR2
                 for nF3 in range(tail_total + 1):
                     for nR4 in range(tail_total - nF3 + 1):
                         for nF4 in range(tail_total - nF3 - nR4 + 1):
                             for nR5 in range(tail_total - nF3 - nR4 - nF4 + 1):
                                 nR3 = tail_total - nF3 - nR4 - nF4 - nR5
+                                # Case 1 job-count identity rewritten in terms
+                                # of the MTF profile variables:
+                                # nF2 - nR3 + nF4 + nR5 + 1 = 0.
+                                if nF2 - nR3 + nF4 + nR5 + 1 != 0:
+                                    continue
                                 profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
                                 if profile.total_job_count == target_job_count:
                                     yield profile
