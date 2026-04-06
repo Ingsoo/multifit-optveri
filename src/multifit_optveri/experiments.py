@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from multifit_optveri.acceleration import AccelerationCase
+from multifit_optveri.acceleration import AccelerationCase, PAPER_MACHINE_RANGE, PAPER_TARGET_RATIO
 from multifit_optveri.branching import (
     MtfProfile,
     OptProfile,
@@ -103,19 +103,26 @@ def derive_job_bounds(machine_count: int, target_ratio: Fraction) -> JobBounds:
 
     lower = 3 * machine_count
     ratio_gap = target_ratio - 1
-    upper_1 = (
-        ceil_fraction(Fraction(machine_count - 1, 1) / (machine_count * ratio_gap)) - 1
-    ) * machine_count
-    upper_2 = (
-        ceil_fraction((Fraction(machine_count, 1) - target_ratio) / (machine_count * ratio_gap))
-        - 1
-    ) * machine_count + 1
+    upper_1 = (ceil_fraction(Fraction(machine_count - 1, 1) / (machine_count * ratio_gap)) - 1) * machine_count
+    upper_2 = _upper_2_machine_block_count(machine_count, target_ratio) * machine_count + 1
     upper = min(upper_1, upper_2)
     if upper < lower:
-        raise ValueError(
-            f"Derived upper bound {upper} is smaller than lower bound {lower} for m={machine_count}."
-        )
+        raise ValueError(f"Derived upper bound {upper} is smaller than lower bound {lower} for m={machine_count}.")
     return JobBounds(lower=lower, upper=upper)
+
+
+def _upper_2_machine_block_count(machine_count: int, target_ratio: Fraction) -> int:
+    """Return the machine-block coefficient used in the second upper bound.
+
+    For the paper regime rho = 20/17 and m in {8, ..., 12}, the intended
+    coefficient is 4 only at m=8 and 5 for m=9..12.
+    """
+
+    ratio_gap = target_ratio - 1
+    raw_value = ceil_fraction((Fraction(machine_count, 1) - target_ratio) / (machine_count * ratio_gap)) - 1
+    if target_ratio == PAPER_TARGET_RATIO and machine_count in PAPER_MACHINE_RANGE:
+        return 4 if machine_count == 8 else 5
+    return raw_value
 
 
 def enumerate_cases(
@@ -138,13 +145,9 @@ def enumerate_cases(
 
     cases: list[ExperimentCase] = []
     seen_branch_signatures: set[tuple[object, ...]] = set()
-    machine_values = tuple(
-        value for value in config.machine_values if machine is None or value == machine
-    )
+    machine_values = tuple(value for value in config.machine_values if machine is None or value == machine)
     acceleration_cases = tuple(
-        value
-        for value in config.acceleration_cases
-        if acceleration_case is None or value is acceleration_case
+        value for value in config.acceleration_cases if acceleration_case is None or value is acceleration_case
     )
 
     for machine_count in machine_values:

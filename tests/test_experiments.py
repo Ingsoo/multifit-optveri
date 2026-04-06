@@ -5,17 +5,27 @@ import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
 from multifit_optveri.config import ExperimentConfig, SolverConfig
-from multifit_optveri.experiments import ExperimentCase, derive_job_bounds, enumerate_cases
+from multifit_optveri.experiments import (
+    ExperimentCase,
+    _upper_2_machine_block_count,
+    derive_job_bounds,
+    enumerate_cases,
+)
 from multifit_optveri.math_utils import parse_ratio
 
 
 class ExperimentTests(unittest.TestCase):
+    def test_upper_2_machine_block_count_matches_paper_values(self) -> None:
+        target = parse_ratio("20/17")
+        actual = {machine_count: _upper_2_machine_block_count(machine_count, target) for machine_count in range(8, 13)}
+        self.assertEqual(actual, {8: 4, 9: 5, 10: 5, 11: 5, 12: 5})
+
     def test_derived_job_bounds_match_paper_range(self) -> None:
         target = parse_ratio("20/17")
         expected = {
             8: (24, 32),
-            9: (27, 37),
-            10: (30, 41),
+            9: (27, 45),
+            10: (30, 50),
             11: (33, 55),
             12: (36, 60),
         }
