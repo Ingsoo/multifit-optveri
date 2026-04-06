@@ -136,7 +136,7 @@ def _result_csv_fieldnames() -> list[str]:
         "job_count",
         "acceleration_case",
         "ell",
-        "mtf-profile-(f1_r2_f2_r3_f3_r4_f4_m5)",
+        "mtf-profile-(f1_r2_f2_r3_f3_r4_f4_r5)",
         "opt-profile-(e3_e4_e5)",
         "verification_result",
         "status",
@@ -156,7 +156,7 @@ def _result_summary_payload(result: SolveResult) -> dict[str, object]:
         "job_count": result.job_count,
         "acceleration_case": result.acceleration_case,
         "ell": result.ell if result.ell is not None else "",
-        "mtf-profile-(f1_r2_f2_r3_f3_r4_f4_m5)": (
+        "mtf-profile-(f1_r2_f2_r3_f3_r4_f4_r5)": (
             result.mtf_profile if result.mtf_profile is not None else ""
         ),
         "opt-profile-(e3_e4_e5)": (result.opt_profile if result.opt_profile is not None else ""),
@@ -201,7 +201,7 @@ def _format_mtf_profile(case: ExperimentCase) -> str | None:
     profile = case.mtf_profile
     return (
         f"({profile.nF1},{profile.nR2},{profile.nF2},{profile.nR3},"
-        f"{profile.nF3},{profile.nR4},{profile.nF4},{profile.nM5})"
+        f"{profile.nF3},{profile.nR4},{profile.nF4},{profile.nR5})"
     )
 
 

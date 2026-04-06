@@ -95,7 +95,7 @@ class ObvHelperTests(unittest.TestCase):
         self.assertEqual(layout.f3_machines, (6,))
         self.assertEqual(layout.r4_machines, (7,))
         self.assertEqual(layout.f4_machines, ())
-        self.assertEqual(layout.m5_machines, (8,))
+        self.assertEqual(layout.r5_machines, (8,))
         self.assertEqual((layout.e2, layout.e3, layout.e4, layout.e5), (2, 8, 14, 18))
         self.assertEqual((layout.t2, layout.t3, layout.t4, layout.t5), (3, 10, 17, 21))
         self.assertEqual(s3_machines, (1, 2, 3))

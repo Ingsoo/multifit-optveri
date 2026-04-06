@@ -270,7 +270,7 @@ def _branch_signature(case: ExperimentCase) -> tuple[object, ...]:
                 case.mtf_profile.nF3,
                 case.mtf_profile.nR4,
                 case.mtf_profile.nF4,
-                case.mtf_profile.nM5,
+                case.mtf_profile.nR5,
             )
             if case.mtf_profile is not None
             else None

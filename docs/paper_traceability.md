@@ -109,8 +109,8 @@ These are not listed verbatim in the table above, but are present in the code.
 | `R4` valid inequality | earliest job on `R4[-1]` plus `p_n` blocks | `_apply_mtf_base_profile_constraints` / `R4_valid_constr[...]` | explicit linear constraint | EXACT | |
 | `R4` equal-processing | `p_j = p_{j+1}` for `j in [t4+1, e4+4|R4|-4)` | `_apply_mtf_base_profile_constraints` / `R4_processing_times[...]` | explicit equalities | EXACT | |
 | `R4` OPT lex order | same lex order over the `R4` equal-processing range | `_apply_mtf_base_profile_constraints` / `R4_symmetry_break_by_proc[...]` | explicit inequalities | EXACT | |
-| `M5` cardinality | `|MTF_i| = 5` for `i in M5` | `_apply_mtf_base_profile_constraints` / `M5_cardinality_constr[...]` | explicit linear constraints | EXACT | |
-| `R5` equal-processing analogue | lemma-driven equal-processing for regular 5-machine interiors | `_apply_r5_constraints` / `case34_M5_processing_times[...]` in `models/obv.py` | explicit equalities | EXACT | only appears when the case-specific branch reaches the `M5` region |
+| `R5` cardinality | `|MTF_i| = 5` for `i in R5` | `_apply_mtf_base_profile_constraints` / `R5_cardinality_constr[...]` | explicit linear constraints | EXACT | |
+| `R5` equal-processing analogue | lemma-driven equal-processing for regular 5-machine interiors | `_apply_r5_constraints` / `case34_R5_processing_times[...]` in `models/obv.py` | explicit equalities | EXACT | only appears when the case-specific branch reaches the `R5` region |
 
 ## Section 5 Common Case Partition
 
@@ -134,7 +134,7 @@ These are not listed verbatim in the table above, but are present in the code.
 | Case 1 OPT init symmetry | `x_{ij}=0` for `i>j` | `_apply_case_profile_constraints` / `case1_opt_init` | explicit inequalities | EXACT | |
 | Case 1 no `F1` | `|F1| = 0` | `iter_mtf_profiles` in `branching.py` | profile tuple always has first component 0 | EXACT | encoded in the branch object rather than a model constraint |
 | Case 1 pair block identity | `2(|R2|+|F2|)+1 = ell` | `iter_mtf_profiles` in `branching.py` | pair-count arithmetic | EXACT | |
-| Case 1 total job identity | `2|R2| + 3(|F2|+|R3|) + 4(|F3|+|R4|) + 5|M5| = 4m - ell + 1` | `iter_mtf_profiles` in `branching.py` | direct total-job-count filter | EXACT | |
+| Case 1 total job identity | `2|R2| + 3(|F2|+|R3|) + 4(|F3|+|R4|) + 5|R5| = 4m - ell + 1` | `iter_mtf_profiles` in `branching.py` | direct total-job-count filter | EXACT | |
 | Case 1 `R2` adjacency | `{2i-1, 2i} subseteq JobinMTF_i` for `i in R2` | `_apply_case_profile_constraints` / `case1_R2_consec_*` | explicit equalities | EXACT | |
 | Case 1 `F2` adjacency | `{2i-1, 2i} subseteq JobinMTF_i` for `i in F2` | `_apply_case_profile_constraints` / `case1_F2_consec_*` | explicit equalities | EXACT | |
 | Case 1 `F2` valid inequality | `p_{ell-2}+p_{ell-1}+p_{ell+2} >= 20/17` | `_apply_case_profile_constraints` / `case1_F2_valid_constr` | explicit inequality | EXACT | |

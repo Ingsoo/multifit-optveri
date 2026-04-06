@@ -86,7 +86,7 @@ class MtfProfileLayout:
     f3_machines: tuple[int, ...]
     r4_machines: tuple[int, ...]
     f4_machines: tuple[int, ...]
-    m5_machines: tuple[int, ...]
+    r5_machines: tuple[int, ...]
     e2: int
     e3: int
     e4: int
@@ -330,7 +330,7 @@ def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
         raise ValueError("MTF profile layout requires case.mtf_profile.")
 
     # This converts the abstract tuple profile into the paper's consecutive
-    # machine blocks F1, R2, F2, R3, F3, R4, F4, M5 and their derived indices
+    # machine blocks F1, R2, F2, R3, F3, R4, F4, R5 and their derived indices
     # e2/e3/e4/e5 and t2/t3/t4/t5. If any of these offsets are wrong, most of the
     # Section 5 structural constraints become shifted.
     machine_ids = list(range(1, case.machine_count + 1))
@@ -351,7 +351,7 @@ def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
     f3_machines = take(profile.nF3)
     r4_machines = take(profile.nR4)
     f4_machines = take(profile.nF4)
-    m5_machines = take(profile.nM5)
+    r5_machines = take(profile.nR5)
 
     e2 = profile.nF1 + 1
     e3 = e2 + 2 * (profile.nR2 + profile.nF2)
@@ -370,7 +370,7 @@ def _build_mtf_profile_layout(case: ExperimentCase) -> MtfProfileLayout:
         f3_machines=f3_machines,
         r4_machines=r4_machines,
         f4_machines=f4_machines,
-        m5_machines=m5_machines,
+        r5_machines=r5_machines,
         e2=e2,
         e3=e3,
         e4=e4,
@@ -551,12 +551,12 @@ def _apply_mtf_base_profile_constraints(
             name=f"F4_valid_constr[{layout.f4_machines[-1]}]",
         )
 
-    for machine_index in layout.m5_machines:
+    for machine_index in layout.r5_machines:
         # The profile object already says these are regular 5-job MTF machines,
         # so make the exact cardinality explicit at the model level.
         model.addConstr(
             gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) == 5,
-            name=f"M5_cardinality_constr[{machine_index}]",
+            name=f"R5_cardinality_constr[{machine_index}]",
         )
 
 
@@ -707,27 +707,27 @@ def _apply_r5_constraints(
 
     # Shared helper for the Case 3 branches when regular 5-job MTF machines are present.
     profile = case.mtf_profile
-    if profile is None or not layout.m5_machines:
+    if profile is None or not layout.r5_machines:
         return
 
     model.addConstr(
-        p[layout.e5 + 5 * profile.nM5 - 5]
-        + p[layout.e5 + 5 * profile.nM5 - 4]
-        + p[layout.e5 + 5 * profile.nM5 - 3]
-        + p[layout.e5 + 5 * profile.nM5 - 2]
-        + p[layout.e5 + 5 * profile.nM5 - 1]
+        p[layout.e5 + 5 * profile.nR5 - 5]
+        + p[layout.e5 + 5 * profile.nR5 - 4]
+        + p[layout.e5 + 5 * profile.nR5 - 3]
+        + p[layout.e5 + 5 * profile.nR5 - 2]
+        + p[layout.e5 + 5 * profile.nR5 - 1]
         + p[case.job_count]
         >= target,
-        name=f"case34_R5_valid_constr[{layout.m5_machines[-1]}]",
+        name=f"case34_R5_valid_constr[{layout.r5_machines[-1]}]",
     )
 
-    proc_same_range = range(layout.t5 + 1, layout.e5 + 5 * profile.nM5 - 5)
+    proc_same_range = range(layout.t5 + 1, layout.e5 + 5 * profile.nR5 - 5)
 
     for job_index in proc_same_range:
         # As in R2/R3/R4, regular interior jobs can be collapsed to equal sizes.
         model.addConstr(
             p[job_index] == p[job_index + 1],
-            name=f"case34_M5_processing_times[{job_index}]",
+            name=f"case34_R5_processing_times[{job_index}]",
         )
         model.addConstrs(
             (

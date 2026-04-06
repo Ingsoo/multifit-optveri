@@ -18,7 +18,7 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(profile.nF1, 1)
         self.assertEqual(profile.nR4, 1)
         self.assertEqual(profile.nF4, 0)
-        self.assertEqual(profile.nM5, 1)
+        self.assertEqual(profile.nR5, 1)
 
     def test_opt_profile_properties(self) -> None:
         profile = OptProfile(3, 4, 1, pattern="two_long")
@@ -178,7 +178,7 @@ class BranchingTests(unittest.TestCase):
 
         self.assertTrue(any(profile.nF4 > 0 for profile in profiles))
 
-    def test_case_2_profiles_enforce_nm5_plus_one_equals_nr3_minus_nf2(self) -> None:
+    def test_case_2_profiles_enforce_nr5_plus_one_equals_nr3_minus_nf2(self) -> None:
         profiles = list(
             iter_mtf_profiles(
                 12,
@@ -190,7 +190,7 @@ class BranchingTests(unittest.TestCase):
 
         self.assertTrue(profiles)
         for profile in profiles:
-            self.assertEqual(profile.nM5 + 1, profile.nR3 - profile.nF2)
+            self.assertEqual(profile.nR5 + 1, profile.nR3 - profile.nF2)
 
     def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
         for acceleration_case, ell in (
