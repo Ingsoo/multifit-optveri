@@ -150,6 +150,22 @@ class OptProfile:
         return self.m5
 
 
+@dataclass(frozen=True)
+class FallbackStarts:
+    """Starting indices of consecutive fallback blocks in F2/F3/F4."""
+
+    s2: int | None = None
+    s3: int | None = None
+    s4: int | None = None
+
+    @property
+    def compact_id(self) -> str:
+        def render(value: int | None) -> str:
+            return "x" if value is None else f"{value:02d}"
+
+        return f"fs{render(self.s2)}_{render(self.s3)}_{render(self.s4)}"
+
+
 def ell_iterator(
     machine_count: int,
     acceleration_case: AccelerationCase,
@@ -313,6 +329,83 @@ def candidate_ells_for_mtf_profile(
     if mtf_profile.nF2 == 0:
         return ()
     return (2 * prefix_total + 2, 2 * prefix_total + 3)
+
+
+def iter_fallback_starts(
+    machine_count: int,
+    mtf_profile: MtfProfile,
+    acceleration_case: AccelerationCase,
+) -> Iterator[FallbackStarts]:
+    """Enumerate coarse fallback-block starts once the MTF profile is fixed.
+
+    Case 1 is left unbranched. For Case 2 we use the structural properties that
+    fallback jobs in F2/F3/F4 are consecutive within each block and appear in
+    block order F2 -> F3 -> F4 with no reversals.
+    """
+
+    if acceleration_case is AccelerationCase.CASE_1:
+        yield FallbackStarts()
+        return
+
+    if acceleration_case is not AccelerationCase.CASE_2:
+        yield FallbackStarts()
+        return
+
+    prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
+    scheduled_job_count = mtf_profile.scheduled_job_count
+    regular_r3_end = 2 * prefix_total + 3 * mtf_profile.nR3
+    regular_f3_end = regular_r3_end + 3 * mtf_profile.nF3
+    regular_r4_end = regular_f3_end + 4 * mtf_profile.nR4
+    regular_f4_end = regular_r4_end + 4 * mtf_profile.nF4
+
+    s2_values: tuple[int | None, ...]
+    if mtf_profile.nF2 == 0:
+        s2_values = (None,)
+    else:
+        # Before the first F2 fallback appears, all 2-job regular work is fixed
+        # and the first R3 machine has already received its three regular jobs.
+        s2_min = 2 * prefix_total + 4
+        s2_max = scheduled_job_count - (
+            mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4
+        ) + 1
+        s2_values = tuple(range(s2_min, s2_max + 1))
+
+    for s2 in s2_values:
+        if mtf_profile.nF3 == 0:
+            s3_values = (None,)
+        else:
+            # F3 fallback can start only after:
+            # - the whole F2 fallback block finishes, and
+            # - all R3/F3 regular jobs are placed, plus one more job is pushed
+            #   to the next machine so the later machines remain F3-machines.
+            s3_min = max(
+                (0 if s2 is None else s2 + mtf_profile.nF2),
+                regular_f3_end + 2,
+            )
+            s3_max = scheduled_job_count - (mtf_profile.nF3 + mtf_profile.nF4) + 1
+            s3_values = tuple(range(s3_min, s3_max + 1))
+
+        for s3 in s3_values:
+            if mtf_profile.nF4 == 0:
+                yield FallbackStarts(s2=s2, s3=s3, s4=None)
+                continue
+
+            previous_fallback_end = 0
+            if s3 is not None:
+                previous_fallback_end = s3 + mtf_profile.nF3
+            elif s2 is not None:
+                previous_fallback_end = s2 + mtf_profile.nF2
+            # F4 fallback can start only after:
+            # - the earlier fallback blocks finish, and
+            # - all R4/F4 regular jobs are placed, plus one more job is pushed
+            #   to the next machine so the later machines remain F4-machines.
+            s4_min = max(
+                previous_fallback_end,
+                regular_f4_end + 2,
+            )
+            s4_max = scheduled_job_count - mtf_profile.nF4 + 1
+            for s4 in range(s4_min, s4_max + 1):
+                yield FallbackStarts(s2=s2, s3=s3, s4=s4)
 
 
 def _iter_all_mtf_profiles(

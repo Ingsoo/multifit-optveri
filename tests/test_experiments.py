@@ -90,6 +90,26 @@ class ExperimentTests(unittest.TestCase):
             all(case.acceleration_case is AccelerationCase.CASE_1 for case in cases)
         )
 
+    def test_case_2_enumeration_materializes_fallback_starts(self) -> None:
+        config = ExperimentConfig(
+            name="paper_base",
+            target_ratio=parse_ratio("20/17"),
+            machine_values=(12,),
+            derive_job_counts=False,
+            explicit_job_counts=(42,),
+            acceleration_cases=(AccelerationCase.CASE_2,),
+            output_root=Path("results"),
+            write_lp=False,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(),
+        )
+
+        cases = enumerate_cases(config, limit=10)
+
+        self.assertTrue(cases)
+        self.assertTrue(all(case.fallback_starts is not None for case in cases))
+        self.assertTrue(any("fs" in case.case_id for case in cases))
+
     def test_case_output_dir_uses_run_root_when_present(self) -> None:
         case = ExperimentCase(
             experiment_name="paper_base",

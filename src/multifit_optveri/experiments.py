@@ -3,12 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from typing import Iterator
 
 from multifit_optveri.acceleration import AccelerationCase, PAPER_MACHINE_RANGE, PAPER_TARGET_RATIO
 from multifit_optveri.branching import (
+    FallbackStarts,
     MtfProfile,
     OptProfile,
     candidate_ells_for_mtf_profile,
+    iter_fallback_starts,
     iter_mtf_profiles,
     iter_opt_profiles,
 )
@@ -51,6 +54,7 @@ class ExperimentCase:
     write_lp: bool
     enforce_target_lower_bound: bool
     solver: SolverConfig
+    fallback_starts: FallbackStarts | None = None
     run_output_root: Path | None = None
 
     @property
@@ -81,6 +85,8 @@ class ExperimentCase:
             parts.append(f"e{self.ell:02d}")
         if self.mtf_profile is not None:
             parts.append(self.mtf_profile.compact_id)
+        if self.fallback_starts is not None:
+            parts.append(self.fallback_starts.compact_id)
         if self.opt_profile is not None:
             parts.append(self.opt_profile.compact_id)
         return "_".join(parts)
@@ -182,6 +188,7 @@ def enumerate_cases(
                             write_lp=config.write_lp,
                             enforce_target_lower_bound=config.enforce_target_lower_bound,
                             solver=config.solver,
+                            fallback_starts=None,
                         )
                     )
                     if limit is not None and len(cases) >= limit:
@@ -189,53 +196,64 @@ def enumerate_cases(
                 continue
 
             # Acceleration mode corresponds to Section 5:
-            # MTF profile -> candidate ells -> OPT profile.
+            # MTF profile -> fallback starts -> candidate ells -> OPT profile.
             for mtf_profile in iter_mtf_profiles(
                 machine_count,
                 None,
                 current_acceleration_case,
                 max_job_count=bounds.upper,
             ):
-                for ell in candidate_ells_for_mtf_profile(
-                    machine_count,
-                    mtf_profile,
-                    current_acceleration_case,
-                ):
-                    job_count = mtf_profile.total_job_count
-                    if job_count not in allowed_job_counts:
-                        continue
-
-                    for opt_profile in iter_opt_profiles(
+                fallback_start_options: tuple[FallbackStarts | None, ...] | Iterator[FallbackStarts]
+                if current_acceleration_case is AccelerationCase.CASE_1:
+                    fallback_start_options = (None,)
+                else:
+                    fallback_start_options = iter_fallback_starts(
                         machine_count,
-                        ell,
+                        mtf_profile,
                         current_acceleration_case,
-                        mtf_profile=mtf_profile,
+                    )
+                for fallback_starts in fallback_start_options:
+                    for ell in candidate_ells_for_mtf_profile(
+                        machine_count,
+                        mtf_profile,
+                        current_acceleration_case,
                     ):
-                        # Materialize the branch into a concrete experiment case.
-                        case = ExperimentCase(
-                            experiment_name=config.name,
-                            machine_count=machine_count,
-                            job_count=job_count,
-                            acceleration_case=current_acceleration_case,
-                            ell=ell,
-                            mtf_profile=mtf_profile,
-                            opt_profile=opt_profile,
-                            target_ratio=config.target_ratio,
-                            output_root=config.output_root,
-                            write_lp=config.write_lp,
-                            enforce_target_lower_bound=config.enforce_target_lower_bound,
-                            solver=config.solver,
-                        )
-                        signature = _branch_signature(case)
-                        if signature in seen_branch_signatures:
-                            # Dedupe is an implementation optimization: if two
-                            # syntactically different generation paths yield the
-                            # same effective branch signature, solve it only once.
+                        job_count = mtf_profile.total_job_count
+                        if job_count not in allowed_job_counts:
                             continue
-                        seen_branch_signatures.add(signature)
-                        cases.append(case)
-                        if limit is not None and len(cases) >= limit:
-                            return cases
+
+                        for opt_profile in iter_opt_profiles(
+                            machine_count,
+                            ell,
+                            current_acceleration_case,
+                            mtf_profile=mtf_profile,
+                        ):
+                            # Materialize the branch into a concrete experiment case.
+                            case = ExperimentCase(
+                                experiment_name=config.name,
+                                machine_count=machine_count,
+                                job_count=job_count,
+                                acceleration_case=current_acceleration_case,
+                                ell=ell,
+                                mtf_profile=mtf_profile,
+                                opt_profile=opt_profile,
+                                target_ratio=config.target_ratio,
+                                output_root=config.output_root,
+                                write_lp=config.write_lp,
+                                enforce_target_lower_bound=config.enforce_target_lower_bound,
+                                solver=config.solver,
+                                fallback_starts=fallback_starts,
+                            )
+                            signature = _branch_signature(case)
+                            if signature in seen_branch_signatures:
+                                # Dedupe is an implementation optimization: if two
+                                # syntactically different generation paths yield the
+                                # same effective branch signature, solve it only once.
+                                continue
+                            seen_branch_signatures.add(signature)
+                            cases.append(case)
+                            if limit is not None and len(cases) >= limit:
+                                return cases
     return cases
 
 
@@ -252,6 +270,8 @@ def render_case_plan(cases: list[ExperimentCase]) -> str:
             line += f", ell={case.ell}"
         if case.mtf_profile is not None:
             line += f", mtf={case.mtf_profile.compact_id}"
+        if case.fallback_starts is not None:
+            line += f", starts={case.fallback_starts.compact_id}"
         if case.opt_profile is not None:
             line += f", opt={case.opt_profile.compact_id}"
         lines.append(line)
@@ -282,6 +302,15 @@ def _branch_signature(case: ExperimentCase) -> tuple[object, ...]:
                 case.mtf_profile.nR5,
             )
             if case.mtf_profile is not None
+            else None
+        ),
+        (
+            (
+                case.fallback_starts.s2,
+                case.fallback_starts.s3,
+                case.fallback_starts.s4,
+            )
+            if case.fallback_starts is not None
             else None
         ),
         (

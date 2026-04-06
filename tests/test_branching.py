@@ -4,10 +4,12 @@ import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
 from multifit_optveri.branching import (
+    FallbackStarts,
     MtfProfile,
     OptProfile,
     candidate_ells_for_mtf_profile,
     ell_iterator,
+    iter_fallback_starts,
     iter_mtf_profiles,
     iter_opt_profiles,
 )
@@ -36,6 +38,10 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(profile.machine_cardinalities, (3, 3, 3, 4, 4, 4, 4, 5))
         self.assertEqual(profile.nS3, 3)
         self.assertEqual(profile.nS5, 1)
+
+    def test_fallback_starts_compact_id(self) -> None:
+        self.assertEqual(FallbackStarts().compact_id, "fsx_x_x")
+        self.assertEqual(FallbackStarts(12, 18, None).compact_id, "fs12_18_x")
 
     def test_ell_iterator_matches_paper_order_for_m8(self) -> None:
         self.assertEqual(ell_iterator(8, AccelerationCase.CASE_1, max_job_count=100), (9, 7, 5, 3, 1))
@@ -248,6 +254,66 @@ class BranchingTests(unittest.TestCase):
                 profile.nR3 + profile.nF3 + profile.nR4 + profile.nF4 + profile.nR5,
                 tail_total,
             )
+
+    def test_case_2_fallback_starts_respect_lower_bounds_for_f2_and_f3(self) -> None:
+        profile = next(
+            profile
+            for profile in iter_mtf_profiles(
+                12,
+                8,
+                AccelerationCase.CASE_2,
+                max_job_count=200,
+            )
+            if profile.nF2 > 0 and profile.nF3 > 0
+        )
+
+        starts = list(iter_fallback_starts(12, profile, AccelerationCase.CASE_2))
+
+        self.assertTrue(starts)
+        prefix_total = profile.nF1 + profile.nR2 + profile.nF2
+        regular_r3_end = 2 * prefix_total + 3 * profile.nR3
+        regular_f3_end = regular_r3_end + 3 * profile.nF3
+        for start in starts:
+            self.assertIsNotNone(start.s2)
+            self.assertIsNotNone(start.s3)
+            assert start.s2 is not None
+            assert start.s3 is not None
+            self.assertGreaterEqual(start.s2, 2 * prefix_total + 4)
+            self.assertGreaterEqual(start.s3, start.s2 + profile.nF2)
+            self.assertGreaterEqual(start.s3, regular_f3_end + 2)
+            self.assertIsNone(start.s4)
+
+    def test_case_2_fallback_starts_respect_lower_bounds_for_f4(self) -> None:
+        profile = next(
+            profile
+            for profile in iter_mtf_profiles(
+                12,
+                8,
+                AccelerationCase.CASE_2,
+                max_job_count=200,
+            )
+            if profile.nF2 > 0 and profile.nF4 > 0
+        )
+
+        starts = list(iter_fallback_starts(12, profile, AccelerationCase.CASE_2))
+
+        self.assertTrue(starts)
+        prefix_total = profile.nF1 + profile.nR2 + profile.nF2
+        regular_f4_end = (
+            2 * prefix_total
+            + 3 * profile.nR3
+            + 3 * profile.nF3
+            + 4 * profile.nR4
+            + 4 * profile.nF4
+        )
+        for start in starts:
+            self.assertIsNotNone(start.s2)
+            self.assertIsNotNone(start.s4)
+            assert start.s2 is not None
+            assert start.s4 is not None
+            self.assertGreaterEqual(start.s2, 2 * prefix_total + 4)
+            self.assertGreaterEqual(start.s4, start.s2 + profile.nF2)
+            self.assertGreaterEqual(start.s4, regular_f4_end + 2)
 
     def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
         for acceleration_case, ell in (
