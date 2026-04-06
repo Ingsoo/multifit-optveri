@@ -322,6 +322,60 @@ class BranchingTests(unittest.TestCase):
             self.assertGreaterEqual(start.s4, start.s2 + profile.nF2)
             self.assertGreaterEqual(start.s4, structural_s4_min)
 
+    def test_case_2_fallback_starts_exact_for_m8_n30_profile(self) -> None:
+        profile = next(
+            profile
+            for profile in iter_mtf_profiles(
+                8,
+                None,
+                AccelerationCase.CASE_2,
+                max_job_count=100,
+            )
+            if profile.compact_id == "mtf00140102"
+        )
+
+        starts = list(iter_fallback_starts(8, profile, AccelerationCase.CASE_2))
+
+        self.assertEqual(
+            starts,
+            [FallbackStarts(s2=value, s3=None, s4=None) for value in range(6, 30)],
+        )
+
+    def test_case_2_fallback_starts_exact_snapshot_for_multi_fallback_profile(self) -> None:
+        profile = next(
+            profile
+            for profile in iter_mtf_profiles(
+                12,
+                None,
+                AccelerationCase.CASE_2,
+                max_job_count=200,
+            )
+            if profile.compact_id == "mtf00361002"
+        )
+
+        starts = list(iter_fallback_starts(12, profile, AccelerationCase.CASE_2))
+
+        self.assertEqual(len(starts), 245)
+        self.assertEqual(starts[:10], [FallbackStarts(10, value, None) for value in range(32, 42)])
+        self.assertEqual(
+            starts[-10:],
+            [
+                FallbackStarts(35, 38, None),
+                FallbackStarts(35, 39, None),
+                FallbackStarts(35, 40, None),
+                FallbackStarts(35, 41, None),
+                FallbackStarts(36, 39, None),
+                FallbackStarts(36, 40, None),
+                FallbackStarts(36, 41, None),
+                FallbackStarts(37, 40, None),
+                FallbackStarts(37, 41, None),
+                FallbackStarts(38, 41, None),
+            ],
+        )
+        self.assertNotIn(FallbackStarts(10, 29, None), starts)
+        self.assertNotIn(FallbackStarts(10, 30, None), starts)
+        self.assertNotIn(FallbackStarts(10, 31, None), starts)
+
     def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
         for acceleration_case, ell in (
             (AccelerationCase.CASE_1, 9),
