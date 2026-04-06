@@ -134,12 +134,12 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(
             [profile.compact_id for profile in case_2_profiles],
             [
-                "mtf04020101",
-                "mtf04010300",
+                "mtf01340000",
+                "mtf02230100",
                 "mtf03130001",
                 "mtf03120200",
-                "mtf02230100",
-                "mtf01340000",
+                "mtf04020101",
+                "mtf04010300",
             ],
         )
 
@@ -221,7 +221,7 @@ class BranchingTests(unittest.TestCase):
         for profile in profiles:
             self.assertEqual(profile.nF2 - profile.nR3 + profile.nF4 + profile.nR5 + 1, 0)
 
-    def test_case_2_profiles_enforce_nr5_plus_one_equals_nr3_minus_nf2(self) -> None:
+    def test_case_2_profiles_enforce_nf4_plus_nr5_plus_one_equals_nr3_minus_nf2(self) -> None:
         profiles = list(
             iter_mtf_profiles(
                 12,
@@ -233,7 +233,12 @@ class BranchingTests(unittest.TestCase):
 
         self.assertTrue(profiles)
         for profile in profiles:
-            self.assertEqual(profile.nR5 + 1, profile.nR3 - profile.nF2)
+            self.assertEqual(profile.nF4 + profile.nR5 + 1, profile.nR3 - profile.nF2)
+            tail_total = 12 - (profile.nR2 + profile.nF2)
+            self.assertEqual(
+                profile.nR3 + profile.nF3 + profile.nR4 + profile.nF4 + profile.nR5,
+                tail_total,
+            )
 
     def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
         for acceleration_case, ell in (

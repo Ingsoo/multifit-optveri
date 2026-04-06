@@ -284,8 +284,8 @@ def candidate_ells_for_mtf_profile(
     """
 
     prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
-    if prefix_total > machine_count // 2:
-        return ()
+    # if prefix_total > machine_count // 2:
+    #     return ()
 
     if acceleration_case is AccelerationCase.CASE_1:
         if mtf_profile.nF1 != 0:
@@ -345,17 +345,27 @@ def _iter_all_mtf_profiles(
         pair_upper = machine_count // 2
         for pair_total in range(pair_upper + 1):
             tail_total = machine_count - pair_total
-            for nF2 in range(pair_total + 1):
-                nR2 = pair_total - nF2
+            for nR2 in range(pair_total + 1):
+                nF2 = pair_total - nR2
                 for nF3 in range(tail_total + 1):
                     for nR4 in range(tail_total - nF3 + 1):
                         for nF4 in range(tail_total - nF3 - nR4 + 1):
                             remainder = tail_total - nF3 - nR4 - nF4
-                            if (remainder + nF2 + 1) % 2 != 0:
+                            # Old unsplit variable was M5 = F4 + R5, so the
+                            # Case 2 relation becomes F4 + R5 + 1 = R3 - F2.
+                            if (remainder + nF2 + nF4 + 1) % 2 != 0:
                                 continue
-                            nR3 = (remainder + nF2 + 1) // 2
-                            nR5 = nR3 - nF2 - 1
+                            nR3 = (remainder + nF2 + nF4 + 1) // 2
+                            nR5 = nR3 - nF2 - nF4 - 1
                             if nR5 < 0 or nR3 < 0:
+                                continue
+                            # Make the Case 2 tail identities explicit instead of
+                            # relying only on the algebra above:
+                            # - nR3 + nR5 = tail_total - nF3 - nR4 - nF4
+                            # - nF4 + nR5 + 1 = nR3 - nF2
+                            if nR3 + nR5 != remainder:
+                                continue
+                            if nF4 + nR5 + 1 != nR3 - nF2:
                                 continue
                             if 7 * nF3 + 10 * nF4 < 2 * machine_count - 11:
                                 profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
