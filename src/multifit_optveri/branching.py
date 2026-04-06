@@ -353,18 +353,37 @@ def iter_fallback_starts(
 
     prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
     scheduled_job_count = mtf_profile.scheduled_job_count
-    regular_r3_end = 2 * prefix_total + 3 * mtf_profile.nR3
-    regular_f3_end = regular_r3_end + 3 * mtf_profile.nF3
-    regular_r4_end = regular_f3_end + 4 * mtf_profile.nR4
-    regular_f4_end = regular_r4_end + 4 * mtf_profile.nF4
+    # Lower bounds derived from the current structural understanding:
+    # - s2 starts only after all R2/F2 regular jobs and the first R3 machine.
+    # - s3 starts only after all R2 jobs, all F2 regular/fallback jobs,
+    #   all R3 regular jobs, all F3 regular jobs, and one extra job has already
+    #   been pushed to the next machine.
+    # - s4 starts only after all R2 jobs, all F2 regular/fallback jobs,
+    #   all R3 jobs, all F3 regular/fallback jobs, all R4 jobs, all F4 regular
+    #   jobs, and one extra job has already been pushed to the next machine.
+    s2_structural_min = 2 * prefix_total + 4
+    s3_structural_min = (
+        2 * prefix_total
+        + mtf_profile.nF2
+        + 3 * mtf_profile.nR3
+        + 3 * mtf_profile.nF3
+        + 2
+    )
+    s4_structural_min = (
+        2 * prefix_total
+        + mtf_profile.nF2
+        + 3 * mtf_profile.nR3
+        + 4 * mtf_profile.nF3
+        + 4 * mtf_profile.nR4
+        + 4 * mtf_profile.nF4
+        + 2
+    )
 
     s2_values: tuple[int | None, ...]
     if mtf_profile.nF2 == 0:
         s2_values = (None,)
     else:
-        # Before the first F2 fallback appears, all 2-job regular work is fixed
-        # and the first R3 machine has already received its three regular jobs.
-        s2_min = 2 * prefix_total + 4
+        s2_min = s2_structural_min
         s2_max = scheduled_job_count - (
             mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4
         ) + 1
@@ -374,13 +393,9 @@ def iter_fallback_starts(
         if mtf_profile.nF3 == 0:
             s3_values = (None,)
         else:
-            # F3 fallback can start only after:
-            # - the whole F2 fallback block finishes, and
-            # - all R3/F3 regular jobs are placed, plus one more job is pushed
-            #   to the next machine so the later machines remain F3-machines.
             s3_min = max(
                 (0 if s2 is None else s2 + mtf_profile.nF2),
-                regular_f3_end + 2,
+                s3_structural_min,
             )
             s3_max = scheduled_job_count - (mtf_profile.nF3 + mtf_profile.nF4) + 1
             s3_values = tuple(range(s3_min, s3_max + 1))
@@ -395,13 +410,9 @@ def iter_fallback_starts(
                 previous_fallback_end = s3 + mtf_profile.nF3
             elif s2 is not None:
                 previous_fallback_end = s2 + mtf_profile.nF2
-            # F4 fallback can start only after:
-            # - the earlier fallback blocks finish, and
-            # - all R4/F4 regular jobs are placed, plus one more job is pushed
-            #   to the next machine so the later machines remain F4-machines.
             s4_min = max(
                 previous_fallback_end,
-                regular_f4_end + 2,
+                s4_structural_min,
             )
             s4_max = scheduled_job_count - mtf_profile.nF4 + 1
             for s4 in range(s4_min, s4_max + 1):

@@ -271,8 +271,13 @@ class BranchingTests(unittest.TestCase):
 
         self.assertTrue(starts)
         prefix_total = profile.nF1 + profile.nR2 + profile.nF2
-        regular_r3_end = 2 * prefix_total + 3 * profile.nR3
-        regular_f3_end = regular_r3_end + 3 * profile.nF3
+        structural_s3_min = (
+            2 * prefix_total
+            + profile.nF2
+            + 3 * profile.nR3
+            + 3 * profile.nF3
+            + 2
+        )
         for start in starts:
             self.assertIsNotNone(start.s2)
             self.assertIsNotNone(start.s3)
@@ -280,7 +285,7 @@ class BranchingTests(unittest.TestCase):
             assert start.s3 is not None
             self.assertGreaterEqual(start.s2, 2 * prefix_total + 4)
             self.assertGreaterEqual(start.s3, start.s2 + profile.nF2)
-            self.assertGreaterEqual(start.s3, regular_f3_end + 2)
+            self.assertGreaterEqual(start.s3, structural_s3_min)
             self.assertIsNone(start.s4)
 
     def test_case_2_fallback_starts_respect_lower_bounds_for_f4(self) -> None:
@@ -299,12 +304,14 @@ class BranchingTests(unittest.TestCase):
 
         self.assertTrue(starts)
         prefix_total = profile.nF1 + profile.nR2 + profile.nF2
-        regular_f4_end = (
+        structural_s4_min = (
             2 * prefix_total
+            + profile.nF2
             + 3 * profile.nR3
-            + 3 * profile.nF3
+            + 4 * profile.nF3
             + 4 * profile.nR4
             + 4 * profile.nF4
+            + 2
         )
         for start in starts:
             self.assertIsNotNone(start.s2)
@@ -313,7 +320,7 @@ class BranchingTests(unittest.TestCase):
             assert start.s4 is not None
             self.assertGreaterEqual(start.s2, 2 * prefix_total + 4)
             self.assertGreaterEqual(start.s4, start.s2 + profile.nF2)
-            self.assertGreaterEqual(start.s4, regular_f4_end + 2)
+            self.assertGreaterEqual(start.s4, structural_s4_min)
 
     def test_generated_profiles_match_mtf_job_count_after_reordered_branching(self) -> None:
         for acceleration_case, ell in (
