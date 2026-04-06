@@ -48,6 +48,7 @@ class BranchingTests(unittest.TestCase):
             list(iter_opt_profiles(8, 9, AccelerationCase.CASE_1)),
             [OptProfile(8, 0, 0, pattern="case1")],
         )
+        self.assertEqual(list(iter_opt_profiles(8, 2, AccelerationCase.CASE_2)), [])
         self.assertEqual(
             list(iter_opt_profiles(8, 10, AccelerationCase.CASE_2)),
             [OptProfile(8, 0, 0, pattern="two_long")],
@@ -58,6 +59,14 @@ class BranchingTests(unittest.TestCase):
         )
 
     def test_candidate_ells_for_mtf_profile_match_case_logic(self) -> None:
+        self.assertEqual(
+            candidate_ells_for_mtf_profile(
+                8,
+                MtfProfile(0, 0, 0, 0, 0, 0, 0, 8),
+                AccelerationCase.CASE_2,
+            ),
+            (1,),
+        )
         self.assertEqual(
             candidate_ells_for_mtf_profile(
                 8,

@@ -193,6 +193,8 @@ def iter_opt_profiles(
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
+        if ell == 2:
+            return
         if ell % 2 == 0:
             profile = OptProfile(
                 m3=ell - 2,
@@ -295,7 +297,11 @@ def candidate_ells_for_mtf_profile(
     if acceleration_case is AccelerationCase.CASE_2:
         if mtf_profile.nF1 != 0:
             return ()
-        return (2 * prefix_total + 1, 2 * prefix_total + 2)
+        return tuple(
+            ell
+            for ell in (2 * prefix_total + 1, 2 * prefix_total + 2)
+            if ell != 2
+        )
 
     if acceleration_case is AccelerationCase.CASE_3_1:
         return (
