@@ -3,7 +3,14 @@ from __future__ import annotations
 import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
-from multifit_optveri.branching import MtfProfile, OptProfile, ell_iterator, iter_mtf_profiles, iter_opt_profiles
+from multifit_optveri.branching import (
+    MtfProfile,
+    OptProfile,
+    candidate_ells_for_mtf_profile,
+    ell_iterator,
+    iter_mtf_profiles,
+    iter_opt_profiles,
+)
 
 
 class BranchingTests(unittest.TestCase):
@@ -48,6 +55,32 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(
             list(iter_opt_profiles(8, 9, AccelerationCase.CASE_2)),
             [OptProfile(8, 0, 0, pattern="regular")],
+        )
+
+    def test_candidate_ells_for_mtf_profile_match_case_logic(self) -> None:
+        self.assertEqual(
+            candidate_ells_for_mtf_profile(
+                8,
+                MtfProfile(0, 4, 0, 1, 0, 3, 0, 0),
+                AccelerationCase.CASE_2,
+            ),
+            (9, 10),
+        )
+        self.assertEqual(
+            candidate_ells_for_mtf_profile(
+                8,
+                MtfProfile(0, 0, 1, 0, 0, 7, 0, 0),
+                AccelerationCase.CASE_3_1,
+            ),
+            (3, 4, 5),
+        )
+        self.assertEqual(
+            candidate_ells_for_mtf_profile(
+                8,
+                MtfProfile(0, 0, 1, 0, 0, 0, 0, 7),
+                AccelerationCase.CASE_3_2,
+            ),
+            (4, 5),
         )
 
     def test_case_1_and_case_2_mtf_profile_counts_match_current_branching(self) -> None:
@@ -151,10 +184,6 @@ class BranchingTests(unittest.TestCase):
         self.assertEqual(
             [profile.compact_id for profile in case_31_profiles],
             [
-                "mtf00010700",
-                "mtf00020501",
-                "mtf00030302",
-                "mtf00040103",
                 "mtf00100700",
                 "mtf00110501",
                 "mtf00120302",

@@ -5,7 +5,13 @@ from fractions import Fraction
 from pathlib import Path
 
 from multifit_optveri.acceleration import AccelerationCase
-from multifit_optveri.branching import MtfProfile, OptProfile, ell_iterator, iter_mtf_profiles, iter_opt_profiles
+from multifit_optveri.branching import (
+    MtfProfile,
+    OptProfile,
+    candidate_ells_for_mtf_profile,
+    iter_mtf_profiles,
+    iter_opt_profiles,
+)
 from multifit_optveri.config import ExperimentConfig, SolverConfig
 from multifit_optveri.math_utils import ceil_fraction, format_ratio
 
@@ -180,17 +186,17 @@ def enumerate_cases(
                 continue
 
             # Acceleration mode corresponds to Section 5:
-            # ell -> MTF profile -> OPT profile.
-            for ell in ell_iterator(
+            # MTF profile -> candidate ells -> OPT profile.
+            for mtf_profile in iter_mtf_profiles(
                 machine_count,
+                None,
                 current_acceleration_case,
                 max_job_count=bounds.upper,
             ):
-                for mtf_profile in iter_mtf_profiles(
+                for ell in candidate_ells_for_mtf_profile(
                     machine_count,
-                    ell,
+                    mtf_profile,
                     current_acceleration_case,
-                    max_job_count=bounds.upper,
                 ):
                     job_count = mtf_profile.total_job_count
                     if job_count not in allowed_job_counts:

@@ -250,86 +250,131 @@ def iter_opt_profiles(
 
 def iter_mtf_profiles(
     machine_count: int,
-    ell: int,
+    ell: int | None,
     acceleration_case: AccelerationCase,
     *,
     max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
-    # This is the MTF-profile iterator from the paper-style branch decomposition.
-    # When checking correctness, compare these arithmetic conditions with the
-    # pseudocode and any case-specific lemmas that restrict feasible profiles.
+    # This iterator can be used in two modes:
+    # - `ell is None`: generate all MTF profiles for the case
+    # - `ell is not None`: keep only profiles compatible with that ell
+    for profile in _iter_all_mtf_profiles(
+        machine_count,
+        acceleration_case,
+        max_job_count=max_job_count,
+    ):
+        if ell is None or ell in candidate_ells_for_mtf_profile(
+            machine_count,
+            profile,
+            acceleration_case,
+        ):
+            yield profile
+
+
+def candidate_ells_for_mtf_profile(
+    machine_count: int,
+    mtf_profile: MtfProfile,
+    acceleration_case: AccelerationCase,
+) -> tuple[int, ...]:
+    """Return the feasible ell values induced by one MTF profile.
+
+    This is the inverse view of the paper's branching logic. In the current
+    implementation it is mainly used to enumerate in the order
+    m -> MTF profile -> candidate ells -> OPT profile.
+    """
+
+    prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
+    if prefix_total > machine_count // 2:
+        return ()
+
     if acceleration_case is AccelerationCase.CASE_1:
-        # Case 1: long jobs pair cleanly, so the MTF side is determined by the
-        # number of long-job pairs, namely floor((ell - 1) / 2). Unlike the
-        # generic two-stage compatibility check, Case 1 also has the explicit
-        # identity n = 4m - ell + 1, so we enforce that total job count here.
-        pair_total = (ell - 1) // 2
-        if 2 * pair_total != ell - 1:
-            return
-        tail_total = machine_count - pair_total
-        target_job_count = 4 * machine_count - ell + 1
-        if max_job_count is not None and target_job_count > max_job_count:
-            return
-        for nF2 in range(pair_total + 1):
-            nR2 = pair_total - nF2
-            for nF3 in range(tail_total + 1):
-                for nR4 in range(tail_total - nF3 + 1):
-                    for nF4 in range(tail_total - nF3 - nR4 + 1):
-                        for nR5 in range(tail_total - nF3 - nR4 - nF4 + 1):
-                            nR3 = tail_total - nF3 - nR4 - nF4 - nR5
-                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
-                            if profile.total_job_count == target_job_count:
-                                yield profile
+        if mtf_profile.nF1 != 0:
+            return ()
+        return (2 * prefix_total + 1,)
+
+    if acceleration_case is AccelerationCase.CASE_2:
+        if mtf_profile.nF1 != 0:
+            return ()
+        return (2 * prefix_total + 1, 2 * prefix_total + 2)
+
+    if acceleration_case is AccelerationCase.CASE_3_1:
+        return (
+            2 * prefix_total + 1,
+            2 * prefix_total + 2,
+            2 * prefix_total + 3,
+        )
+
+    if mtf_profile.nF2 == 0:
+        return ()
+    return (2 * prefix_total + 2, 2 * prefix_total + 3)
+
+
+def _iter_all_mtf_profiles(
+    machine_count: int,
+    acceleration_case: AccelerationCase,
+    *,
+    max_job_count: int | None = None,
+) -> Iterator[MtfProfile]:
+    # Generate coarse MTF profiles independent of ell; the possible ell values
+    # are recovered later by `candidate_ells_for_mtf_profile`.
+    if acceleration_case is AccelerationCase.CASE_1:
+        pair_upper = machine_count // 2
+        for pair_total in range(pair_upper + 1):
+            tail_total = machine_count - pair_total
+            target_job_count = 4 * machine_count - 2 * pair_total
+            if max_job_count is not None and target_job_count > max_job_count:
+                continue
+            for nF2 in range(pair_total + 1):
+                nR2 = pair_total - nF2
+                for nF3 in range(tail_total + 1):
+                    for nR4 in range(tail_total - nF3 + 1):
+                        for nF4 in range(tail_total - nF3 - nR4 + 1):
+                            for nR5 in range(tail_total - nF3 - nR4 - nF4 + 1):
+                                nR3 = tail_total - nF3 - nR4 - nF4 - nR5
+                                profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
+                                if profile.total_job_count == target_job_count:
+                                    yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
-        pair_total = (ell - 1) // 2
-        tail_total = machine_count - pair_total
-        for nF2 in range(pair_total + 1):
-            nR2 = pair_total - nF2
-            for nF3 in range(tail_total + 1):
-                for nR4 in range(tail_total - nF3 + 1):
-                    for nF4 in range(tail_total - nF3 - nR4 + 1):
-                        remainder = tail_total - nF3 - nR4 - nF4
-                        # In Case 2 the tail profile additionally satisfies
-                        # nR5 + 1 = nR3 - nF2, so nR3 and nR5 are not free.
-                        # Together with nR3 + nR5 = remainder, this gives
-                        # 2*nR3 = remainder + nF2 + 1.
-                        if (remainder + nF2 + 1) % 2 != 0:
-                            continue
-                        nR3 = (remainder + nF2 + 1) // 2
-                        nR5 = nR3 - nF2 - 1
-                        if nR5 < 0 or nR3 < 0:
-                            continue
-                        if 7 * nF3 + 10 * nF4 < 2 * machine_count - 11:
-                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
-                            if max_job_count is None or profile.total_job_count <= max_job_count:
-                                yield profile
+        pair_upper = machine_count // 2
+        for pair_total in range(pair_upper + 1):
+            tail_total = machine_count - pair_total
+            for nF2 in range(pair_total + 1):
+                nR2 = pair_total - nF2
+                for nF3 in range(tail_total + 1):
+                    for nR4 in range(tail_total - nF3 + 1):
+                        for nF4 in range(tail_total - nF3 - nR4 + 1):
+                            remainder = tail_total - nF3 - nR4 - nF4
+                            if (remainder + nF2 + 1) % 2 != 0:
+                                continue
+                            nR3 = (remainder + nF2 + 1) // 2
+                            nR5 = nR3 - nF2 - 1
+                            if nR5 < 0 or nR3 < 0:
+                                continue
+                            if 7 * nF3 + 10 * nF4 < 2 * machine_count - 11:
+                                profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
+                                if max_job_count is None or profile.total_job_count <= max_job_count:
+                                    yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_3_1:
-        # Case 3-1 delegates to the common Case 3 generator with the "ell is not
-        # an F2 fallback job" switch.
-        yield from _iter_case_3_profiles(
+        yield from _iter_all_case_3_profiles(
             machine_count,
-            ell,
             allow_case_32=False,
             max_job_count=max_job_count,
         )
         return
 
-    # Case 3-2 delegates to the same helper with the opposite switch.
-    yield from _iter_case_3_profiles(
+    yield from _iter_all_case_3_profiles(
         machine_count,
-        ell,
         allow_case_32=True,
         max_job_count=max_job_count,
     )
 
 
-def _iter_case_3_profiles(
+def _iter_all_case_3_profiles(
     machine_count: int,
-    ell: int,
     *,
     allow_case_32: bool,
     max_job_count: int | None = None,
@@ -343,15 +388,10 @@ def _iter_case_3_profiles(
         for nF1 in range(a + 1):
             nR2 = a - nF1
             for nF2 in range(machine_count - a + 1):
-                if allow_case_32:
-                    if nF2 == 0:
-                        continue
-                if allow_case_32:
-                    if not (2 * (a + nF2) + 2 <= ell <= 2 * (a + nF2) + 3):
-                        continue
-                else:
-                    if ell - 3 == 2 * (a + nF2) and nF2 != 0:
-                        continue
+                if a + nF2 > machine_count // 2:
+                    continue
+                if allow_case_32 and nF2 == 0:
+                    continue
                 for b in range(nF2, machine_count - a + 1):
                     nR3 = b - nF2
                     for nF3 in range(f3_upper + 1):
