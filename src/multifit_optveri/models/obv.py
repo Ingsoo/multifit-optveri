@@ -1257,7 +1257,11 @@ def _build_case_2_exact_assignment(
     case: ExperimentCase,
     layout: MtfProfileLayout,
 ) -> dict[int, tuple[int, ...]]:
-    """Reconstruct the fully determined Case 2 MTF schedule from fallback starts."""
+    """Reconstruct the fully determined Case 2 MTF schedule from fallback starts.
+
+    Case 2 has no F1 machines, so the exact schedule begins directly with the
+    R2 block and then proceeds through F2, R3, F3, R4, F4, and R5.
+    """
 
     profile = case.mtf_profile
     starts = case.fallback_starts
@@ -1291,7 +1295,7 @@ def _build_case_2_exact_assignment(
         regular_cursor += regular_count
         return machine_jobs
 
-    for machine_index in layout.f1_machines + layout.r2_machines:
+    for machine_index in layout.r2_machines:
         assignment[machine_index] = regular_block(2)
 
     for machine_index in layout.f2_machines:
