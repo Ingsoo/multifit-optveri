@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import csv
 import json
 
+from multifit_optveri.acceleration import AccelerationCase
 from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.math_utils import (
     format_ratio,
@@ -15,7 +16,12 @@ from multifit_optveri.math_utils import (
     format_sorted_numeric_values,
     parse_ratio,
 )
-from multifit_optveri.models.obv import BuiltObvModel, build_obv_model
+from multifit_optveri.models.obv import (
+    BuiltObvModel,
+    _build_case_2_exact_assignment,
+    _build_mtf_profile_layout,
+    build_obv_model,
+)
 
 if TYPE_CHECKING:
     from gurobipy import Model as GurobiModel
@@ -234,6 +240,22 @@ def _format_opt_profile(case: ExperimentCase) -> str | None:
     return f"({profile.nS3},{profile.nS4},{profile.nS5})"
 
 
+def _format_mtf_assignment(case: ExperimentCase) -> dict[str, list[int]] | None:
+    if case.mtf_profile is None:
+        return None
+    if case.acceleration_case is not AccelerationCase.CASE_2:
+        return None
+    if case.fallback_starts is None:
+        return None
+
+    layout = _build_mtf_profile_layout(case)
+    assignment = _build_case_2_exact_assignment(case, layout)
+    return {
+        f"M{machine_index}": list(job_indices)
+        for machine_index, job_indices in sorted(assignment.items())
+    }
+
+
 def _extract_optimal_p_values_desc(
     model: _OptimalValueModel, job_count: int
 ) -> str | None:
@@ -407,6 +429,7 @@ def run_case(case: ExperimentCase) -> SolveResult:
         "target_ratio": result.target_ratio,
         "built_at_utc": result.built_at_utc,
         "output_dir": result.output_dir,
+        "mtf_assignment": _format_mtf_assignment(case),
     }
     summary_payload["dimensions"] = {
         "total_variables": int(model.NumVars) if hasattr(model, "NumVars") else built_model.dimensions.total_variables,
