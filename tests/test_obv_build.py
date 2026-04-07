@@ -21,6 +21,14 @@ else:
     GurobiVar = Any
 
 
+def _linear_row_var_names(model: GurobiModel, constr_name: str) -> list[str]:
+    constr = model.getConstrByName(constr_name)
+    if constr is None:
+        return []
+    row = model.getRow(constr)
+    return [row.getVar(index).VarName for index in range(row.size())]
+
+
 class _ConstraintCountModel(Protocol):
     NumConstrs: int
     NumQConstrs: int
@@ -109,6 +117,28 @@ class ObvBuildTests(unittest.TestCase):
         finally:
             built.model.dispose()
 
+    def test_split_constraints_also_tighten_variable_bounds(self) -> None:
+        case = _case(
+            acceleration_case=AccelerationCase.CASE_2,
+            ell=10,
+            job_count=24,
+            mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0, 0),
+            opt_profile=OptProfile(8, 0, 0, pattern="two_long"),
+            fallback_starts=FallbackStarts(None, None, None),
+        )
+        built = build_obv_model(case)
+
+        try:
+            model: GurobiModel = built.model
+            p1_var = cast(GurobiVar | None, model.getVarByName("p[1]"))
+            p10_var = cast(GurobiVar | None, model.getVarByName("p[10]"))
+            self.assertIsNotNone(p1_var)
+            self.assertIsNotNone(p10_var)
+            self.assertAlmostEqual(p1_var.LB, float(Fraction(13, 34)))
+            self.assertAlmostEqual(p10_var.UB, float(Fraction(20, 51)))
+        finally:
+            built.model.dispose()
+
     def test_profiled_opt_tail_sum_constraint_is_added(self) -> None:
         case = _case(
             acceleration_case=AccelerationCase.CASE_1,
@@ -168,6 +198,13 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[12]"))
             self.assertIsNone(model.getConstrByName("R3_processing_times[5]"))
             self.assertIsNone(model.getConstrByName("F2_processing_times[3]"))
+            self.assertIsNone(model.getConstrByName("opt_cardinality_lb[1]"))
+            self.assertIsNone(model.getConstrByName("opt_cardinality_ub[1]"))
+            self.assertIsNone(model.getConstrByName("opt_cardinality_order[1]"))
+            self.assertIsNone(model.getConstrByName("opt_smallest_jobs_sum"))
+            self.assertIsNone(model.getConstrByName("mtf_cardinality_lb[1]"))
+            self.assertIsNone(model.getConstrByName("mtf_cardinality_ub[1]"))
+            self.assertIsNone(model.getConstrByName("mtf_init_fixed[1]"))
             self.assertIsNone(model.getConstrByName("mtf_profile_cardinality[1]"))
         finally:
             built.model.dispose()
@@ -194,6 +231,10 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("F2_fallback_processing_times[10]"))
             self.assertIsNotNone(model.getConstrByName("F2_fallback_processing_times[11]"))
             self.assertIsNone(model.getConstrByName("F2_fallback_processing_times[12]"))
+            self.assertEqual(
+                _linear_row_var_names(model, "F2_valid_constr[3]"),
+                ["p[5]", "p[6]", "p[7]"],
+            )
         finally:
             built.model.dispose()
 

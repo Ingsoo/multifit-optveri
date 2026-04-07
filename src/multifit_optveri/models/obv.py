@@ -171,6 +171,33 @@ def _processing_time_upper_bound(case: ExperimentCase, job_index: int, lower_bou
     return upper_bound
 
 
+def _tighten_processing_time_bounds_by_split(
+    case: ExperimentCase,
+    job_index: int,
+    lower_bound: Fraction,
+    upper_bound: Fraction,
+) -> tuple[Fraction, Fraction]:
+    """Tighten p_j bounds using the current p_n bounds and the D/D' split.
+
+    The explicit Section 5 constraints remain in the model; this helper only
+    adds the constant-domain strengthening implied by them.
+    """
+
+    if case.ell is None or job_index == case.job_count:
+        return lower_bound, upper_bound
+
+    split_gap = Fraction(3, 17)
+    pn_lower_bound = _processing_time_lower_bound(case)
+    pn_upper_bound = _processing_time_upper_bound(case, case.job_count, pn_lower_bound)
+
+    if job_index < case.ell:
+        lower_bound = max(lower_bound, pn_lower_bound + split_gap)
+    else:
+        upper_bound = min(upper_bound, pn_upper_bound + split_gap)
+
+    return lower_bound, upper_bound
+
+
 def _opt_cardinality_upper_bound(lower_bound: Fraction) -> int:
     """Compute the global upper bound on OPT machine cardinality."""
 
@@ -554,39 +581,40 @@ def _apply_global_valid_inequalities(
     opt_cardinality_upper = _opt_cardinality_upper_bound(lower_bound)
     mtf_cardinality_upper = _mtf_cardinality_upper_bound(case.machine_count, case.target_ratio)
 
-    model.addConstrs(
-        (
-            gp.quicksum(x[machine_index, job_index] for job_index in jobs) >= OPT_JOB_CARDINALITY_LOWER_BOUND
-            for machine_index in machines
-        ),
-        name="opt_cardinality_lb",
-    )
-    # Since jobs are sorted, the smallest jobs also satisfy an aggregate upper
-    # bound that helps OPT-side pruning.
-    model.addConstrs(
-        (
-            gp.quicksum(x[machine_index, job_index] for job_index in jobs) <= opt_cardinality_upper
-            for machine_index in machines
-        ),
-        name="opt_cardinality_ub",
-    )
-    model.addConstrs(
-        (
-            gp.quicksum(x[machine_index, job_index] for job_index in jobs)
-            <= gp.quicksum(x[machine_index + 1, job_index] for job_index in jobs)
-            for machine_index in range(1, case.machine_count)
-        ),
-        name="opt_cardinality_order",
-    )
-
-    rem = case.job_count % case.machine_count
-    if rem != 0:
-        quo = case.job_count // case.machine_count
-        first_small_job = case.job_count - rem * (quo + 1) + 1
-        model.addConstr(
-            gp.quicksum(p[job_index] for job_index in range(first_small_job, case.job_count + 1)) <= rem,
-            name="opt_smallest_jobs_sum",
+    if case.opt_profile is None:
+        model.addConstrs(
+            (
+                gp.quicksum(x[machine_index, job_index] for job_index in jobs) >= OPT_JOB_CARDINALITY_LOWER_BOUND
+                for machine_index in machines
+            ),
+            name="opt_cardinality_lb",
         )
+        # Since jobs are sorted, the smallest jobs also satisfy an aggregate upper
+        # bound that helps OPT-side pruning.
+        model.addConstrs(
+            (
+                gp.quicksum(x[machine_index, job_index] for job_index in jobs) <= opt_cardinality_upper
+                for machine_index in machines
+            ),
+            name="opt_cardinality_ub",
+        )
+        model.addConstrs(
+            (
+                gp.quicksum(x[machine_index, job_index] for job_index in jobs)
+                <= gp.quicksum(x[machine_index + 1, job_index] for job_index in jobs)
+                for machine_index in range(1, case.machine_count)
+            ),
+            name="opt_cardinality_order",
+        )
+
+        rem = case.job_count % case.machine_count
+        if rem != 0:
+            quo = case.job_count // case.machine_count
+            first_small_job = case.job_count - rem * (quo + 1) + 1
+            model.addConstr(
+                gp.quicksum(p[job_index] for job_index in range(first_small_job, case.job_count + 1)) <= rem,
+                name="opt_smallest_jobs_sum",
+            )
 
     model.addConstrs(
         (
@@ -597,24 +625,21 @@ def _apply_global_valid_inequalities(
         ),
         name="mtf_init_order",
     )
-    # Machine 1 starts with job 1, and all other partial sums start at zero.
-    model.addConstr(s[1, 1] == p[1], name="mtf_init_fixed[1]")
-    model.addConstrs(
-        (s[machine_index, 1] == 0 for machine_index in range(2, case.machine_count + 1)),
-        name="mtf_init_fixed",
-    )
-
-    model.addConstrs(
-        (2 <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) for machine_index in machines),
-        name="mtf_cardinality_lb",
-    )
-    model.addConstrs(
-        (
-            gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) <= mtf_cardinality_upper
-            for machine_index in machines
-        ),
-        name="mtf_cardinality_ub",
-    )
+    if case.mtf_profile is None:
+        model.addConstrs(
+            (
+                2 <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
+                for machine_index in machines
+            ),
+            name="mtf_cardinality_lb",
+        )
+        model.addConstrs(
+            (
+                gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs) <= mtf_cardinality_upper
+                for machine_index in machines
+            ),
+            name="mtf_cardinality_ub",
+        )
     model.addConstrs(
         (
             gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
@@ -1080,15 +1105,22 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     # Variable creation: compare these domains with the paper's variable
     # definitions, keeping in mind that the bounds are solver-strengthening
     # choices and may be tighter than the bare formulation.
-    p = {
-        job_index: model.addVar(
-            lb=_as_float(processing_time_lower_bound),
-            ub=_as_float(_processing_time_upper_bound(case, job_index, processing_time_lower_bound)),
+    p: PVarMap = {}
+    for job_index in jobs:
+        job_lower_bound = processing_time_lower_bound
+        job_upper_bound = _processing_time_upper_bound(case, job_index, processing_time_lower_bound)
+        job_lower_bound, job_upper_bound = _tighten_processing_time_bounds_by_split(
+            case,
+            job_index,
+            job_lower_bound,
+            job_upper_bound,
+        )
+        p[job_index] = model.addVar(
+            lb=_as_float(job_lower_bound),
+            ub=_as_float(job_upper_bound),
             vtype=GRB.CONTINUOUS,
             name=f"p[{job_index}]",
         )
-        for job_index in jobs
-    }
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
     q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
     s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
@@ -1308,6 +1340,15 @@ def _apply_case_2_exact_mtf_constraints(
             expr += p[case.job_count]
         model.addConstr(expr >= target, name=name)
 
+    def add_fallback_machine_valid(
+        regular_jobs: tuple[int, ...],
+        *,
+        name: str,
+    ) -> None:
+        next_job = regular_jobs[-1] + 1
+        expr = gp.quicksum(p[job_index] for job_index in regular_jobs) + p[next_job]
+        model.addConstr(expr >= target, name=name)
+
     def add_rk_equal_processing(
         machine_block: tuple[int, ...],
         *,
@@ -1407,8 +1448,8 @@ def _apply_case_2_exact_mtf_constraints(
         add_rk_equal_processing(layout.r2_machines, k=2, name_prefix="R2")
 
     if layout.f2_machines:
-        last_f2_jobs = assignment[layout.f2_machines[-1]]
-        add_machine_valid(last_f2_jobs, with_pn=False, name=f"F2_valid_constr[{layout.f2_machines[-1]}]")
+        last_f2_jobs = assignment[layout.f2_machines[-1]][:2]
+        add_fallback_machine_valid(last_f2_jobs, name=f"F2_valid_constr[{layout.f2_machines[-1]}]")
         add_fk_regular_equal_processing(layout.f2_machines, k=2, name_prefix="F2")
         add_fallback_block_equal_processing(
             tuple(job_index for machine_index in layout.f2_machines for job_index in assignment[machine_index][2:]),
@@ -1421,8 +1462,8 @@ def _apply_case_2_exact_mtf_constraints(
         add_rk_equal_processing(layout.r3_machines, k=3, name_prefix="R3")
 
     if layout.f3_machines:
-        last_f3_jobs = assignment[layout.f3_machines[-1]]
-        add_machine_valid(last_f3_jobs, with_pn=False, name=f"F3_valid_constr[{layout.f3_machines[-1]}]")
+        last_f3_jobs = assignment[layout.f3_machines[-1]][:3]
+        add_fallback_machine_valid(last_f3_jobs, name=f"F3_valid_constr[{layout.f3_machines[-1]}]")
         add_fk_regular_equal_processing(layout.f3_machines, k=3, name_prefix="F3")
         add_fallback_block_equal_processing(
             tuple(job_index for machine_index in layout.f3_machines for job_index in assignment[machine_index][3:]),
@@ -1435,8 +1476,8 @@ def _apply_case_2_exact_mtf_constraints(
         add_rk_equal_processing(layout.r4_machines, k=4, name_prefix="R4")
 
     if layout.f4_machines:
-        last_f4_jobs = assignment[layout.f4_machines[-1]]
-        add_machine_valid(last_f4_jobs, with_pn=False, name=f"F4_valid_constr[{layout.f4_machines[-1]}]")
+        last_f4_jobs = assignment[layout.f4_machines[-1]][:4]
+        add_fallback_machine_valid(last_f4_jobs, name=f"F4_valid_constr[{layout.f4_machines[-1]}]")
         add_fk_regular_equal_processing(layout.f4_machines, k=4, name_prefix="F4")
         add_fallback_block_equal_processing(
             tuple(job_index for machine_index in layout.f4_machines for job_index in assignment[machine_index][4:]),
