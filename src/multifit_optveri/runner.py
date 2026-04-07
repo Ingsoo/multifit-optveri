@@ -9,7 +9,12 @@ import csv
 import json
 
 from multifit_optveri.experiments import ExperimentCase
-from multifit_optveri.math_utils import format_ratio, format_scaled_rational_values, parse_ratio
+from multifit_optveri.math_utils import (
+    format_ratio,
+    format_scaled_rational_values,
+    format_sorted_numeric_values,
+    parse_ratio,
+)
 from multifit_optveri.models.obv import BuiltObvModel, build_obv_model
 
 if TYPE_CHECKING:
@@ -49,6 +54,7 @@ class SolveResult:
     job_count: int
     ell: int | None
     mtf_profile: str | None
+    fallback_starts: str | None
     opt_profile: str | None
     target_ratio: str
     verification_result: str
@@ -58,6 +64,7 @@ class SolveResult:
     runtime_seconds: float | None
     node_count: float | None
     mip_gap: float | None
+    optimal_p_values_desc_exact: str | None
     optimal_p_values_desc: str | None
     output_dir: str
     built_at_utc: str
@@ -137,6 +144,7 @@ def _result_csv_fieldnames() -> list[str]:
         "acceleration_case",
         "ell",
         "mtf-profile-(f1_r2_f2_r3_f3_r4_f4_r5)",
+        "fallback-starts-(s2_s3_s4)",
         "opt-profile-(e3_e4_e5)",
         "verification_result",
         "status",
@@ -145,6 +153,7 @@ def _result_csv_fieldnames() -> list[str]:
         "runtime_seconds",
         "node_count",
         "mip_gap",
+        "optimal-p-values-(desc-exact)",
         "optimal-p-values-(desc-scaled)",
     ]
 
@@ -159,6 +168,9 @@ def _result_summary_payload(result: SolveResult) -> dict[str, object]:
         "mtf-profile-(f1_r2_f2_r3_f3_r4_f4_r5)": (
             result.mtf_profile if result.mtf_profile is not None else ""
         ),
+        "fallback-starts-(s2_s3_s4)": (
+            result.fallback_starts if result.fallback_starts is not None else ""
+        ),
         "opt-profile-(e3_e4_e5)": (result.opt_profile if result.opt_profile is not None else ""),
         "verification_result": result.verification_result,
         "status": result.status,
@@ -167,6 +179,9 @@ def _result_summary_payload(result: SolveResult) -> dict[str, object]:
         "runtime_seconds": result.runtime_seconds if result.runtime_seconds is not None else "",
         "node_count": result.node_count if result.node_count is not None else "",
         "mip_gap": result.mip_gap if result.mip_gap is not None else "",
+        "optimal-p-values-(desc-exact)": (
+            result.optimal_p_values_desc_exact if result.optimal_p_values_desc_exact is not None else ""
+        ),
         "optimal-p-values-(desc-scaled)": (
             result.optimal_p_values_desc if result.optimal_p_values_desc is not None else ""
         ),
@@ -205,6 +220,13 @@ def _format_mtf_profile(case: ExperimentCase) -> str | None:
     )
 
 
+def _format_fallback_starts(case: ExperimentCase) -> str | None:
+    if case.fallback_starts is None:
+        return None
+    starts = case.fallback_starts
+    return f"({starts.s2},{starts.s3},{starts.s4})"
+
+
 def _format_opt_profile(case: ExperimentCase) -> str | None:
     if case.opt_profile is None:
         return None
@@ -225,6 +247,21 @@ def _extract_optimal_p_values_desc(
             return None
         values.append(float(variable.X))
     return format_scaled_rational_values(values)
+
+
+def _extract_optimal_p_values_desc_exact(
+    model: _OptimalValueModel, job_count: int
+) -> str | None:
+    if GRB is None or model.Status != GRB.OPTIMAL:
+        return None
+
+    values: list[float] = []
+    for job_index in range(1, job_count + 1):
+        variable = model.getVarByName(f"p[{job_index}]")
+        if variable is None:
+            return None
+        values.append(float(variable.X))
+    return format_sorted_numeric_values(values)
 
 
 def create_run_artifacts(cases: list[ExperimentCase]) -> RunArtifacts:
@@ -334,6 +371,7 @@ def run_case(case: ExperimentCase) -> SolveResult:
     model.optimize()
 
     has_solution = model.SolCount > 0
+    optimal_p_values_desc_exact = _extract_optimal_p_values_desc_exact(model, case.job_count)
     optimal_p_values_desc = _extract_optimal_p_values_desc(model, case.job_count)
     result = SolveResult(
         experiment_name=case.experiment_name,
@@ -343,6 +381,7 @@ def run_case(case: ExperimentCase) -> SolveResult:
         job_count=case.job_count,
         ell=case.ell,
         mtf_profile=_format_mtf_profile(case),
+        fallback_starts=_format_fallback_starts(case),
         opt_profile=_format_opt_profile(case),
         target_ratio=format_ratio(case.target_ratio),
         verification_result=_verification_result(
@@ -356,6 +395,7 @@ def run_case(case: ExperimentCase) -> SolveResult:
         runtime_seconds=(float(model.Runtime) if hasattr(model, "Runtime") else None),
         node_count=(float(model.NodeCount) if hasattr(model, "NodeCount") else None),
         mip_gap=(float(model.MIPGap) if has_solution and hasattr(model, "MIPGap") else None),
+        optimal_p_values_desc_exact=optimal_p_values_desc_exact,
         optimal_p_values_desc=optimal_p_values_desc,
         output_dir=str(case.output_dir),
         built_at_utc=datetime.now(UTC).isoformat(),

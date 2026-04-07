@@ -202,47 +202,6 @@ def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
         )
 
 
-# def _apply_paper_acceleration_constraints(
-#     model: GurobiModel,
-#     case: ExperimentCase,
-#     p: PVarMap,
-#     x: TupleVarMap,
-#     q: TupleVarMap,
-#     jobs: range,
-#     truncated_jobs: range,
-#     machines: range,
-# ) -> None:
-#     """Add the common Section 5 cuts that apply before case-specific structure."""
-
-#     # These are the common Section 5 conditions that apply before any profile-
-#     # specific reasoning: common p_n lower bound, cardinality limits, and the
-#     # top-level case interval on p_n.
-#     common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
-
-#     model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
-#     # Common Proposition/Observation consequences:
-#     # - all OPT machines have bounded cardinality
-#     # - OPT machine sizes are sorted nondecreasingly
-#     # - all MTF machines have bounded cardinality
-#     model.addConstrs(
-#         (gp.quicksum(x[i, j] for j in jobs) <= 5 for i in machines),
-#         name="opt_cardinality",
-#     )
-#     model.addConstrs(
-#         (gp.quicksum(q[i, j] for j in truncated_jobs) <= 5 for i in machines),
-#         name="mtf_cardinality",
-#     )
-
-#     pn_range = case.acceleration_case.pn_range
-#     if pn_range.lower is not None:
-#         model.addConstr(p[case.job_count] >= _as_float(pn_range.lower), name="case_pn_lb")
-#     if pn_range.upper is not None:
-#         # Important paper/code mismatch to remember during comparison:
-#         # the paper states strict upper bounds, but the model can only encode
-#         # them as non-strict <= constraints.
-#         model.addConstr(p[case.job_count] <= _as_float(pn_range.upper), name="case_pn_ub")
-
-
 def _apply_profile_cardinality_constraints(
     model: GurobiModel,
     case: ExperimentCase,
@@ -287,25 +246,37 @@ def _apply_profile_cardinality_constraints(
         _apply_opt_profile_tail_sum_constraint(model, case, p)
 
     if case.mtf_profile is not None:
-        # Fix the number of jobs on each MTF machine according to the chosen
-        # coarse MTF profile branch, then refine with profile-specific cuts.
         layout = _build_mtf_profile_layout(case)
-        for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
-            model.addConstr(
-                gp.quicksum(q[machine_index, j] for j in truncated_jobs) == cardinality,
-                name=f"mtf_profile_cardinality[{machine_index}]",
+        if case.acceleration_case is AccelerationCase.CASE_2 and case.fallback_starts is not None:
+            _apply_case_2_exact_mtf_constraints(
+                model,
+                case,
+                p,
+                x,
+                q,
+                machines,
+                target,
+                layout,
             )
-        _apply_mtf_base_profile_constraints(
-            model,
-            case,
-            p,
-            x,
-            q,
-            truncated_jobs,
-            machines,
-            target,
-            layout,
-        )
+        else:
+            # Fix the number of jobs on each MTF machine according to the chosen
+            # coarse MTF profile branch, then refine with profile-specific cuts.
+            for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
+                model.addConstr(
+                    gp.quicksum(q[machine_index, j] for j in truncated_jobs) == cardinality,
+                    name=f"mtf_profile_cardinality[{machine_index}]",
+                )
+            _apply_mtf_base_profile_constraints(
+                model,
+                case,
+                p,
+                x,
+                q,
+                truncated_jobs,
+                machines,
+                target,
+                layout,
+            )
 
     if case.opt_profile is not None and layout is not None and case.ell is not None:
         _apply_case_profile_constraints(
@@ -848,39 +819,39 @@ def _apply_case_profile_constraints(
                 gp.quicksum(x[machine_index, ell - 1] for machine_index in s3_machines) == 1,
                 name="case2_even_ell_two_long_machine",
             )
-        for machine_index in layout.r2_machines:
-            model.addConstr(
-                q[machine_index, 2 * machine_index - 1] == 1,
-                name=f"case2_R2_consec_1[{machine_index}]",
-            )
-            model.addConstr(
-                q[machine_index, 2 * machine_index] == 1,
-                name=f"case2_R2_consec_2[{machine_index}]",
-            )
-        for machine_index in layout.f2_machines:
-            model.addConstr(
-                q[machine_index, 2 * machine_index - 1] == 1,
-                name=f"case2_F2_consec_1[{machine_index}]",
-            )
-            model.addConstr(
-                q[machine_index, 2 * machine_index] == 1,
-                name=f"case2_F2_consec_2[{machine_index}]",
-            )
-        if layout.f2_machines:
-            # The first short-job triple blocked after F2 is anchored around e3.
-            e3 = case.opt_profile.nS3 + 1
-            model.addConstr(
-                p[e3 - 1] + p[e3] + p[e3 + 1] >= target,
-                name="case2_F2_valid_constr",
-            )
-        if layout.r3_machines:
-            # As in Case 1, the first R3 machine is explicitly anchored.
-            first_r3 = layout.r3_machines[0]
-            e3 = case.opt_profile.nS3 + 1
-            model.addConstr(q[first_r3, e3] == 1, name=f"case2_R3_consec_1[{first_r3}]")
-            model.addConstr(q[first_r3, e3 + 1] == 1, name=f"case2_R3_consec_2[{first_r3}]")
-            model.addConstr(q[first_r3, e3 + 2] == 1, name=f"case2_R3_consec_3[{first_r3}]")
-        _apply_case_2_fallback_start_assignments(model, case, q, layout)
+        if case.fallback_starts is None:
+            for machine_index in layout.r2_machines:
+                model.addConstr(
+                    q[machine_index, 2 * machine_index - 1] == 1,
+                    name=f"case2_R2_consec_1[{machine_index}]",
+                )
+                model.addConstr(
+                    q[machine_index, 2 * machine_index] == 1,
+                    name=f"case2_R2_consec_2[{machine_index}]",
+                )
+            for machine_index in layout.f2_machines:
+                model.addConstr(
+                    q[machine_index, 2 * machine_index - 1] == 1,
+                    name=f"case2_F2_consec_1[{machine_index}]",
+                )
+                model.addConstr(
+                    q[machine_index, 2 * machine_index] == 1,
+                    name=f"case2_F2_consec_2[{machine_index}]",
+                )
+            if layout.f2_machines:
+                # The first short-job triple blocked after F2 is anchored around e3.
+                e3 = case.opt_profile.nS3 + 1
+                model.addConstr(
+                    p[e3 - 1] + p[e3] + p[e3 + 1] >= target,
+                    name="case2_F2_valid_constr",
+                )
+            if layout.r3_machines:
+                # As in Case 1, the first R3 machine is explicitly anchored.
+                first_r3 = layout.r3_machines[0]
+                e3 = case.opt_profile.nS3 + 1
+                model.addConstr(q[first_r3, e3] == 1, name=f"case2_R3_consec_1[{first_r3}]")
+                model.addConstr(q[first_r3, e3 + 1] == 1, name=f"case2_R3_consec_2[{first_r3}]")
+                model.addConstr(q[first_r3, e3 + 2] == 1, name=f"case2_R3_consec_3[{first_r3}]")
         return
 
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
@@ -1269,13 +1240,29 @@ def _apply_case_2_fallback_start_assignments(
     case: ExperimentCase,
     q: TupleVarMap,
     layout: MtfProfileLayout,
-) -> None:
+) -> dict[int, tuple[int, ...]]:
     """Fix the full Case 2 MTF assignment once fallback starts are branched."""
+
+    assignment = _build_case_2_exact_assignment(case, layout)
+    for machine_index, machine_jobs in assignment.items():
+        for offset, job_index in enumerate(machine_jobs, start=1):
+            model.addConstr(
+                q[machine_index, job_index] == 1,
+                name=f"case2_exact_q[{machine_index},{offset}]",
+            )
+    return assignment
+
+
+def _build_case_2_exact_assignment(
+    case: ExperimentCase,
+    layout: MtfProfileLayout,
+) -> dict[int, tuple[int, ...]]:
+    """Reconstruct the fully determined Case 2 MTF schedule from fallback starts."""
 
     profile = case.mtf_profile
     starts = case.fallback_starts
     if profile is None or starts is None:
-        return
+        return {}
 
     scheduled_job_count = profile.scheduled_job_count
     fallback_jobs = set()
@@ -1292,50 +1279,126 @@ def _apply_case_2_fallback_start_assignments(
     f4_fallback_jobs = fallback_block(starts.s4, profile.nF4)
     regular_jobs = [job_index for job_index in range(1, scheduled_job_count + 1) if job_index not in fallback_jobs]
 
+    assignment: dict[int, tuple[int, ...]] = {}
     regular_cursor = 0
     f2_cursor = 0
     f3_cursor = 0
     f4_cursor = 0
 
-    def assign_regular_block(machine_index: int, regular_count: int, *, label: str) -> None:
+    def regular_block(regular_count: int) -> tuple[int, ...]:
         nonlocal regular_cursor
-        machine_jobs = regular_jobs[regular_cursor : regular_cursor + regular_count]
+        machine_jobs = tuple(regular_jobs[regular_cursor : regular_cursor + regular_count])
         regular_cursor += regular_count
-        for offset, job_index in enumerate(machine_jobs, start=1):
-            model.addConstr(q[machine_index, job_index] == 1, name=f"{label}_regular[{machine_index},{offset}]")
+        return machine_jobs
 
     for machine_index in layout.f1_machines + layout.r2_machines:
-        assign_regular_block(machine_index, 2, label="case2_prefix")
+        assignment[machine_index] = regular_block(2)
 
     for machine_index in layout.f2_machines:
-        assign_regular_block(machine_index, 2, label="case2_F2")
-        model.addConstr(
-            q[machine_index, f2_fallback_jobs[f2_cursor]] == 1,
-            name=f"case2_F2_fallback[{machine_index}]",
-        )
+        assignment[machine_index] = regular_block(2) + (f2_fallback_jobs[f2_cursor],)
         f2_cursor += 1
 
     for machine_index in layout.r3_machines:
-        assign_regular_block(machine_index, 3, label="case2_R3")
+        assignment[machine_index] = regular_block(3)
 
     for machine_index in layout.f3_machines:
-        assign_regular_block(machine_index, 3, label="case2_F3")
-        model.addConstr(
-            q[machine_index, f3_fallback_jobs[f3_cursor]] == 1,
-            name=f"case2_F3_fallback[{machine_index}]",
-        )
+        assignment[machine_index] = regular_block(3) + (f3_fallback_jobs[f3_cursor],)
         f3_cursor += 1
 
     for machine_index in layout.r4_machines:
-        assign_regular_block(machine_index, 4, label="case2_R4")
+        assignment[machine_index] = regular_block(4)
 
     for machine_index in layout.f4_machines:
-        assign_regular_block(machine_index, 4, label="case2_F4")
-        model.addConstr(
-            q[machine_index, f4_fallback_jobs[f4_cursor]] == 1,
-            name=f"case2_F4_fallback[{machine_index}]",
-        )
+        assignment[machine_index] = regular_block(4) + (f4_fallback_jobs[f4_cursor],)
         f4_cursor += 1
 
     for machine_index in layout.r5_machines:
-        assign_regular_block(machine_index, 5, label="case2_R5")
+        assignment[machine_index] = regular_block(5)
+
+    return assignment
+
+
+def _apply_case_2_exact_mtf_constraints(
+    model: GurobiModel,
+    case: ExperimentCase,
+    p: PVarMap,
+    x: TupleVarMap,
+    q: TupleVarMap,
+    machines: range,
+    target: float,
+    layout: MtfProfileLayout,
+) -> None:
+    """Add the exact Case 2 MTF constraints once fallback starts determine the schedule."""
+
+    profile = case.mtf_profile
+    if profile is None or case.fallback_starts is None:
+        return
+
+    assignment = _apply_case_2_fallback_start_assignments(model, case, q, layout)
+
+    def add_machine_valid(machine_jobs: tuple[int, ...], *, with_pn: bool, name: str) -> None:
+        expr = gp.quicksum(p[job_index] for job_index in machine_jobs)
+        if with_pn:
+            expr += p[case.job_count]
+        model.addConstr(expr >= target, name=name)
+
+    def add_equal_processing(
+        job_sequence: tuple[int, ...],
+        *,
+        block_size: int,
+        name_prefix: str,
+    ) -> None:
+        if len(job_sequence) <= block_size:
+            return
+        last_pair_index = len(job_sequence) - block_size
+        for position in range(1, last_pair_index):
+            left_job = job_sequence[position]
+            right_job = job_sequence[position + 1]
+            model.addConstr(
+                p[left_job] == p[right_job],
+                name=f"{name_prefix}_processing_times[{left_job}]",
+            )
+            model.addConstrs(
+                (
+                    gp.quicksum(x[machine_prime, left_job] for machine_prime in range(1, machine_index + 1))
+                    >= x[machine_index, right_job]
+                    for machine_index in machines
+                ),
+                name=f"{name_prefix}_symmetry_break_by_proc[{left_job}]",
+            )
+
+    if layout.r2_machines:
+        last_r2_jobs = assignment[layout.r2_machines[-1]]
+        add_machine_valid(last_r2_jobs, with_pn=True, name=f"R2_valid_constr[{layout.r2_machines[-1]}]")
+        r2_jobs = tuple(job_index for machine_index in layout.r2_machines for job_index in assignment[machine_index])
+        add_equal_processing(r2_jobs, block_size=2, name_prefix="R2")
+
+    if layout.f2_machines:
+        last_f2_jobs = assignment[layout.f2_machines[-1]]
+        add_machine_valid(last_f2_jobs, with_pn=False, name=f"F2_valid_constr[{layout.f2_machines[-1]}]")
+
+    if layout.r3_machines:
+        last_r3_jobs = assignment[layout.r3_machines[-1]]
+        add_machine_valid(last_r3_jobs, with_pn=True, name=f"R3_valid_constr[{layout.r3_machines[-1]}]")
+        r3_jobs = tuple(job_index for machine_index in layout.r3_machines for job_index in assignment[machine_index])
+        add_equal_processing(r3_jobs, block_size=3, name_prefix="R3")
+
+    if layout.f3_machines:
+        last_f3_jobs = assignment[layout.f3_machines[-1]]
+        add_machine_valid(last_f3_jobs, with_pn=False, name=f"F3_valid_constr[{layout.f3_machines[-1]}]")
+
+    if layout.r4_machines:
+        last_r4_jobs = assignment[layout.r4_machines[-1]]
+        add_machine_valid(last_r4_jobs, with_pn=True, name=f"R4_valid_constr[{layout.r4_machines[-1]}]")
+        r4_jobs = tuple(job_index for machine_index in layout.r4_machines for job_index in assignment[machine_index])
+        add_equal_processing(r4_jobs, block_size=4, name_prefix="R4")
+
+    if layout.f4_machines:
+        last_f4_jobs = assignment[layout.f4_machines[-1]]
+        add_machine_valid(last_f4_jobs, with_pn=False, name=f"F4_valid_constr[{layout.f4_machines[-1]}]")
+
+    if layout.r5_machines:
+        last_r5_jobs = assignment[layout.r5_machines[-1]]
+        add_machine_valid(last_r5_jobs, with_pn=True, name=f"R5_valid_constr[{layout.r5_machines[-1]}]")
+        r5_jobs = tuple(job_index for machine_index in layout.r5_machines for job_index in assignment[machine_index])
+        add_equal_processing(r5_jobs, block_size=5, name_prefix="case34_R5")
