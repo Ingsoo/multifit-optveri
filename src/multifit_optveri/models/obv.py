@@ -247,7 +247,9 @@ def _apply_profile_cardinality_constraints(
 
     if case.mtf_profile is not None:
         layout = _build_mtf_profile_layout(case)
-        if case.acceleration_case is AccelerationCase.CASE_2 and case.fallback_starts is not None:
+        if case.acceleration_case is AccelerationCase.CASE_2:
+            if case.fallback_starts is None:
+                raise ValueError("Case 2 exact MTF constraints require fallback_starts.")
             _apply_case_2_exact_mtf_constraints(
                 model,
                 case,
@@ -812,46 +814,6 @@ def _apply_case_profile_constraints(
             (x[machine_index, machine_index] == 1 for machine_index in s3_machines),
             name="case2_OPT_ell_assignment_constr",
         )
-        if ell % 2 == 0:
-            # Even ell corresponds to the paper's "one machine has two long jobs"
-            # phenomenon in the OPT profile.
-            model.addConstr(
-                gp.quicksum(x[machine_index, ell - 1] for machine_index in s3_machines) == 1,
-                name="case2_even_ell_two_long_machine",
-            )
-        if case.fallback_starts is None:
-            for machine_index in layout.r2_machines:
-                model.addConstr(
-                    q[machine_index, 2 * machine_index - 1] == 1,
-                    name=f"case2_R2_consec_1[{machine_index}]",
-                )
-                model.addConstr(
-                    q[machine_index, 2 * machine_index] == 1,
-                    name=f"case2_R2_consec_2[{machine_index}]",
-                )
-            for machine_index in layout.f2_machines:
-                model.addConstr(
-                    q[machine_index, 2 * machine_index - 1] == 1,
-                    name=f"case2_F2_consec_1[{machine_index}]",
-                )
-                model.addConstr(
-                    q[machine_index, 2 * machine_index] == 1,
-                    name=f"case2_F2_consec_2[{machine_index}]",
-                )
-            if layout.f2_machines:
-                # The first short-job triple blocked after F2 is anchored around e3.
-                e3 = case.opt_profile.nS3 + 1
-                model.addConstr(
-                    p[e3 - 1] + p[e3] + p[e3 + 1] >= target,
-                    name="case2_F2_valid_constr",
-                )
-            if layout.r3_machines:
-                # As in Case 1, the first R3 machine is explicitly anchored.
-                first_r3 = layout.r3_machines[0]
-                e3 = case.opt_profile.nS3 + 1
-                model.addConstr(q[first_r3, e3] == 1, name=f"case2_R3_consec_1[{first_r3}]")
-                model.addConstr(q[first_r3, e3 + 1] == 1, name=f"case2_R3_consec_2[{first_r3}]")
-                model.addConstr(q[first_r3, e3 + 2] == 1, name=f"case2_R3_consec_3[{first_r3}]")
         return
 
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
@@ -1389,9 +1351,7 @@ def _apply_case_2_exact_mtf_constraints(
         name_prefix: str,
     ) -> None:
         fk_regular_jobs = sorted(
-            job_index
-            for machine_index in machine_block
-            for job_index in assignment[machine_index][:k]
+            job_index for machine_index in machine_block for job_index in assignment[machine_index][:k]
         )
         if len(fk_regular_jobs) <= k - 1:
             return

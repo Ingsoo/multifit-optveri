@@ -87,6 +87,7 @@ class ObvBuildTests(unittest.TestCase):
             job_count=24,
             mtf_profile=MtfProfile(0, 4, 0, 1, 0, 3, 0, 0),
             opt_profile=OptProfile(8, 0, 0, pattern="two_long"),
+            fallback_starts=FallbackStarts(None, None, None),
         )
         built = build_obv_model(case)
         base_expected = derive_obv_dimensions(
