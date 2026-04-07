@@ -199,7 +199,6 @@ def enumerate_cases(
             # MTF profile -> fallback starts -> candidate ells -> OPT profile.
             for mtf_profile in iter_mtf_profiles(
                 machine_count,
-                None,
                 current_acceleration_case,
                 max_job_count=bounds.upper,
             ):

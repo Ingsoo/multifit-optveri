@@ -268,25 +268,17 @@ def iter_opt_profiles(
 
 def iter_mtf_profiles(
     machine_count: int,
-    ell: int | None,
     acceleration_case: AccelerationCase,
     *,
     max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
-    # This iterator can be used in two modes:
-    # - `ell is None`: generate all MTF profiles for the case
-    # - `ell is not None`: keep only profiles compatible with that ell
-    for profile in _iter_all_mtf_profiles(
+    # MTF profile generation is independent of ell; candidate ell values are
+    # recovered later by `candidate_ells_for_mtf_profile`.
+    yield from _iter_all_mtf_profiles(
         machine_count,
         acceleration_case,
         max_job_count=max_job_count,
-    ):
-        if ell is None or ell in candidate_ells_for_mtf_profile(
-            machine_count,
-            profile,
-            acceleration_case,
-        ):
-            yield profile
+    )
 
 
 def candidate_ells_for_mtf_profile(
