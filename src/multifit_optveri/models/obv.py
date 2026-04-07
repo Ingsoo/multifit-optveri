@@ -886,6 +886,7 @@ def _apply_case_profile_constraints(
             model.addConstr(q[first_r3, e3] == 1, name=f"case2_R3_consec_1[{first_r3}]")
             model.addConstr(q[first_r3, e3 + 1] == 1, name=f"case2_R3_consec_2[{first_r3}]")
             model.addConstr(q[first_r3, e3 + 2] == 1, name=f"case2_R3_consec_3[{first_r3}]")
+        _apply_case_2_fallback_start_assignments(model, case, q, layout)
         return
 
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
@@ -1267,3 +1268,80 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     # MTF placement would exceed the claimed target ratio.
     model.update()
     return BuiltObvModel(model=model, dimensions=dimensions)
+
+
+def _apply_case_2_fallback_start_assignments(
+    model: GurobiModel,
+    case: ExperimentCase,
+    q: TupleVarMap,
+    layout: MtfProfileLayout,
+) -> None:
+    """Fix the full Case 2 MTF assignment once fallback starts are branched."""
+
+    profile = case.mtf_profile
+    starts = case.fallback_starts
+    if profile is None or starts is None:
+        return
+
+    scheduled_job_count = profile.scheduled_job_count
+    fallback_jobs = set()
+
+    def fallback_block(start: int | None, count: int) -> list[int]:
+        if start is None or count == 0:
+            return []
+        values = list(range(start, start + count))
+        fallback_jobs.update(values)
+        return values
+
+    f2_fallback_jobs = fallback_block(starts.s2, profile.nF2)
+    f3_fallback_jobs = fallback_block(starts.s3, profile.nF3)
+    f4_fallback_jobs = fallback_block(starts.s4, profile.nF4)
+    regular_jobs = [job_index for job_index in range(1, scheduled_job_count + 1) if job_index not in fallback_jobs]
+
+    regular_cursor = 0
+    f2_cursor = 0
+    f3_cursor = 0
+    f4_cursor = 0
+
+    def assign_regular_block(machine_index: int, regular_count: int, *, label: str) -> None:
+        nonlocal regular_cursor
+        machine_jobs = regular_jobs[regular_cursor : regular_cursor + regular_count]
+        regular_cursor += regular_count
+        for offset, job_index in enumerate(machine_jobs, start=1):
+            model.addConstr(q[machine_index, job_index] == 1, name=f"{label}_regular[{machine_index},{offset}]")
+
+    for machine_index in layout.f1_machines + layout.r2_machines:
+        assign_regular_block(machine_index, 2, label="case2_prefix")
+
+    for machine_index in layout.f2_machines:
+        assign_regular_block(machine_index, 2, label="case2_F2")
+        model.addConstr(
+            q[machine_index, f2_fallback_jobs[f2_cursor]] == 1,
+            name=f"case2_F2_fallback[{machine_index}]",
+        )
+        f2_cursor += 1
+
+    for machine_index in layout.r3_machines:
+        assign_regular_block(machine_index, 3, label="case2_R3")
+
+    for machine_index in layout.f3_machines:
+        assign_regular_block(machine_index, 3, label="case2_F3")
+        model.addConstr(
+            q[machine_index, f3_fallback_jobs[f3_cursor]] == 1,
+            name=f"case2_F3_fallback[{machine_index}]",
+        )
+        f3_cursor += 1
+
+    for machine_index in layout.r4_machines:
+        assign_regular_block(machine_index, 4, label="case2_R4")
+
+    for machine_index in layout.f4_machines:
+        assign_regular_block(machine_index, 4, label="case2_F4")
+        model.addConstr(
+            q[machine_index, f4_fallback_jobs[f4_cursor]] == 1,
+            name=f"case2_F4_fallback[{machine_index}]",
+        )
+        f4_cursor += 1
+
+    for machine_index in layout.r5_machines:
+        assign_regular_block(machine_index, 5, label="case2_R5")
