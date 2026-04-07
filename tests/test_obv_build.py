@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
-from multifit_optveri.branching import MtfProfile, OptProfile
+from multifit_optveri.branching import FallbackStarts, MtfProfile, OptProfile
 from multifit_optveri.config import SolverConfig
 from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.models import obv
@@ -39,6 +39,7 @@ def _case(
     ell: int | None = None,
     mtf_profile: MtfProfile | None = None,
     opt_profile: OptProfile | None = None,
+    fallback_starts: FallbackStarts | None = None,
 ) -> ExperimentCase:
     return ExperimentCase(
         experiment_name="demo",
@@ -53,6 +54,7 @@ def _case(
         write_lp=False,
         enforce_target_lower_bound=True,
         solver=SolverConfig(output_flag=0),
+        fallback_starts=fallback_starts,
     )
 
 
@@ -136,6 +138,61 @@ class ObvBuildTests(unittest.TestCase):
             p1_var = cast(GurobiVar | None, model.getVarByName("p[1]"))
             self.assertIsNotNone(p1_var)
             self.assertAlmostEqual(p1_var.UB, float(Fraction(47, 119)))
+        finally:
+            built.model.dispose()
+
+    def test_case_2_exact_assignment_constraints_are_added(self) -> None:
+        case = _case(
+            acceleration_case=AccelerationCase.CASE_2,
+            machine_count=8,
+            job_count=30,
+            ell=9,
+            mtf_profile=MtfProfile(0, 0, 1, 4, 0, 1, 0, 2),
+            opt_profile=OptProfile(7, 1, 0, pattern="regular"),
+            fallback_starts=FallbackStarts(6, None, None),
+        )
+        built = build_obv_model(case)
+
+        try:
+            model: GurobiModel = built.model
+            self.assertIsNotNone(model.getConstrByName("case2_exact_q[1,1]"))
+            self.assertIsNotNone(model.getConstrByName("case2_exact_q[1,3]"))
+            self.assertIsNotNone(model.getConstrByName("R2_valid_constr[1]"))
+            self.assertIsNotNone(model.getConstrByName("R3_valid_constr[5]"))
+            self.assertIsNotNone(model.getConstrByName("R4_valid_constr[6]"))
+            self.assertIsNotNone(model.getConstrByName("R5_valid_constr[8]"))
+            self.assertIsNotNone(model.getConstrByName("R3_processing_times[3]"))
+            self.assertIsNotNone(model.getConstrByName("R3_processing_times[4]"))
+            self.assertIsNotNone(model.getConstrByName("R3_processing_times[7]"))
+            self.assertIsNotNone(model.getConstrByName("R3_processing_times[12]"))
+            self.assertIsNone(model.getConstrByName("R3_processing_times[5]"))
+            self.assertIsNone(model.getConstrByName("F2_processing_times[3]"))
+            self.assertIsNone(model.getConstrByName("mtf_profile_cardinality[1]"))
+        finally:
+            built.model.dispose()
+
+    def test_case_2_exact_f2_regular_and_fallback_processing_equalities_are_added(self) -> None:
+        case = _case(
+            acceleration_case=AccelerationCase.CASE_2,
+            machine_count=12,
+            job_count=42,
+            ell=8,
+            mtf_profile=MtfProfile(0, 0, 3, 6, 1, 0, 0, 2),
+            opt_profile=OptProfile(6, 6, 0, pattern="two_long"),
+            fallback_starts=FallbackStarts(10, 32, None),
+        )
+        built = build_obv_model(case)
+
+        try:
+            model: GurobiModel = built.model
+            self.assertIsNotNone(model.getConstrByName("F2_processing_times[1]"))
+            self.assertIsNotNone(model.getConstrByName("F2_processing_times[2]"))
+            self.assertIsNotNone(model.getConstrByName("F2_processing_times[3]"))
+            self.assertIsNotNone(model.getConstrByName("F2_processing_times[4]"))
+            self.assertIsNone(model.getConstrByName("F2_processing_times[5]"))
+            self.assertIsNotNone(model.getConstrByName("F2_fallback_processing_times[10]"))
+            self.assertIsNotNone(model.getConstrByName("F2_fallback_processing_times[11]"))
+            self.assertIsNone(model.getConstrByName("F2_fallback_processing_times[12]"))
         finally:
             built.model.dispose()
 

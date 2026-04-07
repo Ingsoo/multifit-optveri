@@ -6,7 +6,7 @@ from unittest.mock import patch
 import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
-from multifit_optveri.branching import MtfProfile, OptProfile
+from multifit_optveri.branching import FallbackStarts, MtfProfile, OptProfile
 from multifit_optveri.config import SolverConfig, load_experiment_config
 from multifit_optveri.experiments import ExperimentCase, enumerate_cases
 from multifit_optveri.models import obv
@@ -15,6 +15,7 @@ from multifit_optveri.models.obv import (
     _as_float,
     _build_mtf_profile_layout,
     _build_opt_machine_groups,
+    _build_case_2_exact_assignment,
     _common_processing_time_lower_bound,
     _machine_after_pair_block,
     _mtf_cardinality_upper_bound,
@@ -35,6 +36,7 @@ def _sample_case(
     ell: int = 9,
     mtf_profile: MtfProfile | None = None,
     opt_profile: OptProfile | None = None,
+    fallback_starts: FallbackStarts | None = None,
     target_ratio: Fraction = Fraction(20, 17),
 ) -> ExperimentCase:
     return ExperimentCase(
@@ -50,6 +52,7 @@ def _sample_case(
         write_lp=False,
         enforce_target_lower_bound=True,
         solver=SolverConfig(),
+        fallback_starts=fallback_starts,
     )
 
 
@@ -102,6 +105,34 @@ class ObvHelperTests(unittest.TestCase):
         self.assertEqual(s4_machines, (4, 5, 6, 7))
         self.assertEqual(s5_machines, (8,))
         self.assertEqual(_machine_after_pair_block(layout), 5)
+
+    def test_case_2_exact_assignment_reconstruction(self) -> None:
+        case = _sample_case(
+            acceleration_case=AccelerationCase.CASE_2,
+            machine_count=8,
+            job_count=30,
+            ell=9,
+            mtf_profile=MtfProfile(0, 0, 1, 4, 0, 1, 0, 2),
+            opt_profile=OptProfile(7, 1, 0, pattern="regular"),
+            fallback_starts=FallbackStarts(6, None, None),
+        )
+
+        layout = _build_mtf_profile_layout(case)
+        assignment = _build_case_2_exact_assignment(case, layout)
+
+        self.assertEqual(
+            assignment,
+            {
+                1: (1, 2, 6),
+                2: (3, 4, 5),
+                3: (7, 8, 9),
+                4: (10, 11, 12),
+                5: (13, 14, 15),
+                6: (16, 17, 18, 19),
+                7: (20, 21, 22, 23, 24),
+                8: (25, 26, 27, 28, 29),
+            },
+        )
 
     def test_gurobi_guards_raise_without_solver(self) -> None:
         with patch.object(obv, "gp", None), patch.object(obv, "GRB", None):

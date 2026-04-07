@@ -127,18 +127,12 @@ class BranchingTests(unittest.TestCase):
         )
 
     def test_case_1_and_case_2_mtf_profile_counts_match_current_branching(self) -> None:
-        raw_case_1_profiles = list(
-            iter_mtf_profiles(
-                8,
-                9,
-                AccelerationCase.CASE_1,
-                max_job_count=100,
-            )
-        )
+        raw_case_1_profiles = list(iter_mtf_profiles(8, AccelerationCase.CASE_1, max_job_count=100))
         case_1_profiles = list(
             profile
             for profile in raw_case_1_profiles
-            if any(
+            if 9 in candidate_ells_for_mtf_profile(8, profile, AccelerationCase.CASE_1)
+            and any(
                 candidate == OptProfile(8, 0, 0, pattern="case1")
                 for candidate in iter_opt_profiles(
                     8,
@@ -150,13 +144,9 @@ class BranchingTests(unittest.TestCase):
         )
         case_2_profiles = list(
             profile
-            for profile in iter_mtf_profiles(
-                8,
-                10,
-                AccelerationCase.CASE_2,
-                max_job_count=100,
-            )
-            if any(
+            for profile in iter_mtf_profiles(8, AccelerationCase.CASE_2, max_job_count=100)
+            if 10 in candidate_ells_for_mtf_profile(8, profile, AccelerationCase.CASE_2)
+            and any(
                 candidate == OptProfile(8, 0, 0, pattern="two_long")
                 for candidate in iter_opt_profiles(
                     8,
@@ -167,7 +157,8 @@ class BranchingTests(unittest.TestCase):
             )
         )
 
-        self.assertTrue(all(profile.total_job_count == 24 for profile in raw_case_1_profiles))
+        self.assertTrue(all(profile.total_job_count >= 24 for profile in raw_case_1_profiles))
+        self.assertTrue(all(profile.total_job_count == 24 for profile in case_1_profiles))
         self.assertEqual(len(case_1_profiles), 16)
         self.assertEqual(
             [profile.compact_id for profile in case_1_profiles[:3]],
@@ -189,13 +180,9 @@ class BranchingTests(unittest.TestCase):
     def test_case_3_profiles_satisfy_basic_invariants(self) -> None:
         case_31_profiles = list(
             profile
-            for profile in iter_mtf_profiles(
-                8,
-                4,
-                AccelerationCase.CASE_3_1,
-                max_job_count=32,
-            )
-            if any(
+            for profile in iter_mtf_profiles(8, AccelerationCase.CASE_3_1, max_job_count=32)
+            if 4 in candidate_ells_for_mtf_profile(8, profile, AccelerationCase.CASE_3_1)
+            and any(
                 candidate == OptProfile(0, 8, 0, pattern="generic")
                 for candidate in iter_opt_profiles(
                     8,
@@ -207,13 +194,9 @@ class BranchingTests(unittest.TestCase):
         )
         case_32_profiles = list(
             profile
-            for profile in iter_mtf_profiles(
-                8,
-                4,
-                AccelerationCase.CASE_3_2,
-                max_job_count=39,
-            )
-            if any(
+            for profile in iter_mtf_profiles(8, AccelerationCase.CASE_3_2, max_job_count=39)
+            if 4 in candidate_ells_for_mtf_profile(8, profile, AccelerationCase.CASE_3_2)
+            and any(
                 candidate == OptProfile(0, 1, 7, pattern="generic")
                 for candidate in iter_opt_profiles(
                     8,
@@ -239,14 +222,7 @@ class BranchingTests(unittest.TestCase):
             self.assertEqual(profile.machine_count, 8)
 
     def test_case_2_profile_space_can_explicitly_include_f4(self) -> None:
-        profiles = list(
-            iter_mtf_profiles(
-                12,
-                8,
-                AccelerationCase.CASE_2,
-                max_job_count=200,
-            )
-        )
+        profiles = list(iter_mtf_profiles(12, AccelerationCase.CASE_2, max_job_count=200))
 
         self.assertTrue(any(profile.nF4 > 0 for profile in profiles))
 
@@ -254,52 +230,34 @@ class BranchingTests(unittest.TestCase):
         for machine_count in range(8, 13):
             new_profiles = {
                 profile
-                for profile in iter_mtf_profiles(
-                    machine_count,
-                    None,
-                    AccelerationCase.CASE_2,
-                    max_job_count=200,
-                )
+                for profile in iter_mtf_profiles(machine_count, AccelerationCase.CASE_2, max_job_count=200)
                 if profile.nR2 + profile.nF2 >= 1
             }
             legacy_profiles = _legacy_case_2_profiles(machine_count, max_job_count=200)
             self.assertEqual(new_profiles, legacy_profiles)
 
     def test_case_2_new_generation_adds_pair_total_zero_profiles(self) -> None:
-        profiles = list(
-            iter_mtf_profiles(
-                12,
-                None,
-                AccelerationCase.CASE_2,
-                max_job_count=200,
-            )
-        )
+        profiles = list(iter_mtf_profiles(12, AccelerationCase.CASE_2, max_job_count=200))
 
         self.assertTrue(any(profile.nR2 + profile.nF2 == 0 for profile in profiles))
 
     def test_case_1_profiles_enforce_nf2_minus_nr3_plus_nf4_plus_nr5_plus_one_zero(self) -> None:
-        profiles = list(
-            iter_mtf_profiles(
-                12,
-                13,
-                AccelerationCase.CASE_1,
-                max_job_count=200,
-            )
-        )
+        profiles = [
+            profile
+            for profile in iter_mtf_profiles(12, AccelerationCase.CASE_1, max_job_count=200)
+            if 13 in candidate_ells_for_mtf_profile(12, profile, AccelerationCase.CASE_1)
+        ]
 
         self.assertTrue(profiles)
         for profile in profiles:
             self.assertEqual(profile.nF2 - profile.nR3 + profile.nF4 + profile.nR5 + 1, 0)
 
     def test_case_2_profiles_enforce_nf4_plus_nr5_plus_one_equals_nr3_minus_nf2(self) -> None:
-        profiles = list(
-            iter_mtf_profiles(
-                12,
-                8,
-                AccelerationCase.CASE_2,
-                max_job_count=200,
-            )
-        )
+        profiles = [
+            profile
+            for profile in iter_mtf_profiles(12, AccelerationCase.CASE_2, max_job_count=200)
+            if 8 in candidate_ells_for_mtf_profile(12, profile, AccelerationCase.CASE_2)
+        ]
 
         self.assertTrue(profiles)
         for profile in profiles:
@@ -313,12 +271,7 @@ class BranchingTests(unittest.TestCase):
     def test_case_2_fallback_starts_respect_lower_bounds_for_f2_and_f3(self) -> None:
         profile = next(
             profile
-            for profile in iter_mtf_profiles(
-                12,
-                8,
-                AccelerationCase.CASE_2,
-                max_job_count=200,
-            )
+            for profile in iter_mtf_profiles(12, AccelerationCase.CASE_2, max_job_count=200)
             if profile.nF2 > 0 and profile.nF3 > 0
         )
 
@@ -346,12 +299,7 @@ class BranchingTests(unittest.TestCase):
     def test_case_2_fallback_starts_respect_lower_bounds_for_f4(self) -> None:
         profile = next(
             profile
-            for profile in iter_mtf_profiles(
-                11,
-                None,
-                AccelerationCase.CASE_2,
-                max_job_count=200,
-            )
+            for profile in iter_mtf_profiles(11, AccelerationCase.CASE_2, max_job_count=200)
             if profile.compact_id == "mtf00030611"
         )
 
@@ -377,12 +325,7 @@ class BranchingTests(unittest.TestCase):
     def test_case_2_fallback_starts_exact_for_m8_n30_profile(self) -> None:
         profile = next(
             profile
-            for profile in iter_mtf_profiles(
-                8,
-                None,
-                AccelerationCase.CASE_2,
-                max_job_count=100,
-            )
+            for profile in iter_mtf_profiles(8, AccelerationCase.CASE_2, max_job_count=100)
             if profile.compact_id == "mtf00140102"
         )
 
@@ -396,12 +339,7 @@ class BranchingTests(unittest.TestCase):
     def test_case_2_fallback_starts_exact_snapshot_for_multi_fallback_profile(self) -> None:
         profile = next(
             profile
-            for profile in iter_mtf_profiles(
-                12,
-                None,
-                AccelerationCase.CASE_2,
-                max_job_count=200,
-            )
+            for profile in iter_mtf_profiles(12, AccelerationCase.CASE_2, max_job_count=200)
             if profile.compact_id == "mtf00361002"
         )
 
@@ -433,12 +371,9 @@ class BranchingTests(unittest.TestCase):
             (AccelerationCase.CASE_1, 9),
             (AccelerationCase.CASE_2, 10),
         ):
-            for mtf_profile in iter_mtf_profiles(
-                8,
-                ell,
-                acceleration_case,
-                max_job_count=100,
-            ):
+            for mtf_profile in iter_mtf_profiles(8, acceleration_case, max_job_count=100):
+                if ell not in candidate_ells_for_mtf_profile(8, mtf_profile, acceleration_case):
+                    continue
                 for opt_profile in iter_opt_profiles(
                     8,
                     ell,

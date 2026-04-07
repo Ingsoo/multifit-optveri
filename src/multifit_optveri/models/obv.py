@@ -1346,18 +1346,88 @@ def _apply_case_2_exact_mtf_constraints(
             expr += p[case.job_count]
         model.addConstr(expr >= target, name=name)
 
-    def add_equal_processing(
-        job_sequence: tuple[int, ...],
+    def add_rk_equal_processing(
+        machine_block: tuple[int, ...],
         *,
-        block_size: int,
+        k: int,
         name_prefix: str,
     ) -> None:
-        if len(job_sequence) <= block_size:
+        rk_jobs = sorted(job_index for machine_index in machine_block for job_index in assignment[machine_index])
+        if len(rk_jobs) <= k - 1:
             return
-        last_pair_index = len(job_sequence) - block_size
-        for position in range(1, last_pair_index):
-            left_job = job_sequence[position]
-            right_job = job_sequence[position + 1]
+        equal_jobs = rk_jobs[: len(rk_jobs) - (k - 1)]
+        if len(equal_jobs) <= 1:
+            return
+
+        segment_start = 0
+        while segment_start < len(equal_jobs):
+            segment_end = segment_start + 1
+            while segment_end < len(equal_jobs) and equal_jobs[segment_end] == equal_jobs[segment_end - 1] + 1:
+                segment_end += 1
+
+            segment = equal_jobs[segment_start:segment_end]
+            for left_job, right_job in zip(segment, segment[1:]):
+                model.addConstr(
+                    p[left_job] == p[right_job],
+                    name=f"{name_prefix}_processing_times[{left_job}]",
+                )
+                model.addConstrs(
+                    (
+                        gp.quicksum(x[machine_prime, left_job] for machine_prime in range(1, machine_index + 1))
+                        >= x[machine_index, right_job]
+                        for machine_index in machines
+                    ),
+                    name=f"{name_prefix}_symmetry_break_by_proc[{left_job}]",
+                )
+
+            segment_start = segment_end
+
+    def add_fk_regular_equal_processing(
+        machine_block: tuple[int, ...],
+        *,
+        k: int,
+        name_prefix: str,
+    ) -> None:
+        fk_regular_jobs = sorted(
+            job_index
+            for machine_index in machine_block
+            for job_index in assignment[machine_index][:k]
+        )
+        if len(fk_regular_jobs) <= k - 1:
+            return
+        equal_jobs = fk_regular_jobs[: len(fk_regular_jobs) - (k - 1)]
+        if len(equal_jobs) <= 1:
+            return
+
+        segment_start = 0
+        while segment_start < len(equal_jobs):
+            segment_end = segment_start + 1
+            while segment_end < len(equal_jobs) and equal_jobs[segment_end] == equal_jobs[segment_end - 1] + 1:
+                segment_end += 1
+
+            segment = equal_jobs[segment_start:segment_end]
+            for left_job, right_job in zip(segment, segment[1:]):
+                model.addConstr(
+                    p[left_job] == p[right_job],
+                    name=f"{name_prefix}_processing_times[{left_job}]",
+                )
+                model.addConstrs(
+                    (
+                        gp.quicksum(x[machine_prime, left_job] for machine_prime in range(1, machine_index + 1))
+                        >= x[machine_index, right_job]
+                        for machine_index in machines
+                    ),
+                    name=f"{name_prefix}_symmetry_break_by_proc[{left_job}]",
+                )
+
+            segment_start = segment_end
+
+    def add_fallback_block_equal_processing(
+        fallback_jobs: tuple[int, ...],
+        *,
+        name_prefix: str,
+    ) -> None:
+        for left_job, right_job in zip(fallback_jobs, fallback_jobs[1:]):
             model.addConstr(
                 p[left_job] == p[right_job],
                 name=f"{name_prefix}_processing_times[{left_job}]",
@@ -1374,35 +1444,46 @@ def _apply_case_2_exact_mtf_constraints(
     if layout.r2_machines:
         last_r2_jobs = assignment[layout.r2_machines[-1]]
         add_machine_valid(last_r2_jobs, with_pn=True, name=f"R2_valid_constr[{layout.r2_machines[-1]}]")
-        r2_jobs = tuple(job_index for machine_index in layout.r2_machines for job_index in assignment[machine_index])
-        add_equal_processing(r2_jobs, block_size=2, name_prefix="R2")
+        add_rk_equal_processing(layout.r2_machines, k=2, name_prefix="R2")
 
     if layout.f2_machines:
         last_f2_jobs = assignment[layout.f2_machines[-1]]
         add_machine_valid(last_f2_jobs, with_pn=False, name=f"F2_valid_constr[{layout.f2_machines[-1]}]")
+        add_fk_regular_equal_processing(layout.f2_machines, k=2, name_prefix="F2")
+        add_fallback_block_equal_processing(
+            tuple(job_index for machine_index in layout.f2_machines for job_index in assignment[machine_index][2:]),
+            name_prefix="F2_fallback",
+        )
 
     if layout.r3_machines:
         last_r3_jobs = assignment[layout.r3_machines[-1]]
         add_machine_valid(last_r3_jobs, with_pn=True, name=f"R3_valid_constr[{layout.r3_machines[-1]}]")
-        r3_jobs = tuple(job_index for machine_index in layout.r3_machines for job_index in assignment[machine_index])
-        add_equal_processing(r3_jobs, block_size=3, name_prefix="R3")
+        add_rk_equal_processing(layout.r3_machines, k=3, name_prefix="R3")
 
     if layout.f3_machines:
         last_f3_jobs = assignment[layout.f3_machines[-1]]
         add_machine_valid(last_f3_jobs, with_pn=False, name=f"F3_valid_constr[{layout.f3_machines[-1]}]")
+        add_fk_regular_equal_processing(layout.f3_machines, k=3, name_prefix="F3")
+        add_fallback_block_equal_processing(
+            tuple(job_index for machine_index in layout.f3_machines for job_index in assignment[machine_index][3:]),
+            name_prefix="F3_fallback",
+        )
 
     if layout.r4_machines:
         last_r4_jobs = assignment[layout.r4_machines[-1]]
         add_machine_valid(last_r4_jobs, with_pn=True, name=f"R4_valid_constr[{layout.r4_machines[-1]}]")
-        r4_jobs = tuple(job_index for machine_index in layout.r4_machines for job_index in assignment[machine_index])
-        add_equal_processing(r4_jobs, block_size=4, name_prefix="R4")
+        add_rk_equal_processing(layout.r4_machines, k=4, name_prefix="R4")
 
     if layout.f4_machines:
         last_f4_jobs = assignment[layout.f4_machines[-1]]
         add_machine_valid(last_f4_jobs, with_pn=False, name=f"F4_valid_constr[{layout.f4_machines[-1]}]")
+        add_fk_regular_equal_processing(layout.f4_machines, k=4, name_prefix="F4")
+        add_fallback_block_equal_processing(
+            tuple(job_index for machine_index in layout.f4_machines for job_index in assignment[machine_index][4:]),
+            name_prefix="F4_fallback",
+        )
 
     if layout.r5_machines:
         last_r5_jobs = assignment[layout.r5_machines[-1]]
         add_machine_valid(last_r5_jobs, with_pn=True, name=f"R5_valid_constr[{layout.r5_machines[-1]}]")
-        r5_jobs = tuple(job_index for machine_index in layout.r5_machines for job_index in assignment[machine_index])
-        add_equal_processing(r5_jobs, block_size=5, name_prefix="case34_R5")
+        add_rk_equal_processing(layout.r5_machines, k=5, name_prefix="R5")
