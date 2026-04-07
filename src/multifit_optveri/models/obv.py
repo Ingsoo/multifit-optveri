@@ -1241,7 +1241,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     # Section 5 common case split conditions.
     if case.acceleration_case is not AccelerationCase.BASE:
         _validate_paper_acceleration_case(case)
-        _apply_paper_acceleration_constraints(model, case, p, x, q, jobs, truncated_jobs, machines)
+        # _apply_paper_acceleration_constraints(model, case, p, x, q, jobs, truncated_jobs, machines)
 
     # Section 5 profile- and branch-specific structural constraints.
     if case.mtf_profile is not None or case.opt_profile is not None:
