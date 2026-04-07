@@ -15,7 +15,6 @@ from multifit_optveri.acceleration import (
     AccelerationCase,
     PAPER_MACHINE_RANGE,
     PAPER_TARGET_RATIO,
-    paper_common_pn_lower_bound,
 )
 from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.math_utils import ceil_fraction
@@ -203,45 +202,45 @@ def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
         )
 
 
-def _apply_paper_acceleration_constraints(
-    model: GurobiModel,
-    case: ExperimentCase,
-    p: PVarMap,
-    x: TupleVarMap,
-    q: TupleVarMap,
-    jobs: range,
-    truncated_jobs: range,
-    machines: range,
-) -> None:
-    """Add the common Section 5 cuts that apply before case-specific structure."""
+# def _apply_paper_acceleration_constraints(
+#     model: GurobiModel,
+#     case: ExperimentCase,
+#     p: PVarMap,
+#     x: TupleVarMap,
+#     q: TupleVarMap,
+#     jobs: range,
+#     truncated_jobs: range,
+#     machines: range,
+# ) -> None:
+#     """Add the common Section 5 cuts that apply before case-specific structure."""
 
-    # These are the common Section 5 conditions that apply before any profile-
-    # specific reasoning: common p_n lower bound, cardinality limits, and the
-    # top-level case interval on p_n.
-    # common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
+#     # These are the common Section 5 conditions that apply before any profile-
+#     # specific reasoning: common p_n lower bound, cardinality limits, and the
+#     # top-level case interval on p_n.
+#     common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
 
-    # model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
-    # Common Proposition/Observation consequences:
-    # - all OPT machines have bounded cardinality
-    # - OPT machine sizes are sorted nondecreasingly
-    # - all MTF machines have bounded cardinality
-    # model.addConstrs(
-    #     (gp.quicksum(x[i, j] for j in jobs) <= 5 for i in machines),
-    #     name="opt_cardinality",
-    # )
-    # model.addConstrs(
-    #     (gp.quicksum(q[i, j] for j in truncated_jobs) <= 5 for i in machines),
-    #     name="mtf_cardinality",
-    # )
+#     model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
+#     # Common Proposition/Observation consequences:
+#     # - all OPT machines have bounded cardinality
+#     # - OPT machine sizes are sorted nondecreasingly
+#     # - all MTF machines have bounded cardinality
+#     model.addConstrs(
+#         (gp.quicksum(x[i, j] for j in jobs) <= 5 for i in machines),
+#         name="opt_cardinality",
+#     )
+#     model.addConstrs(
+#         (gp.quicksum(q[i, j] for j in truncated_jobs) <= 5 for i in machines),
+#         name="mtf_cardinality",
+#     )
 
-    pn_range = case.acceleration_case.pn_range
-    if pn_range.lower is not None:
-        model.addConstr(p[case.job_count] >= _as_float(pn_range.lower), name="case_pn_lb")
-    if pn_range.upper is not None:
-        # Important paper/code mismatch to remember during comparison:
-        # the paper states strict upper bounds, but the model can only encode
-        # them as non-strict <= constraints.
-        model.addConstr(p[case.job_count] <= _as_float(pn_range.upper), name="case_pn_ub")
+#     pn_range = case.acceleration_case.pn_range
+#     if pn_range.lower is not None:
+#         model.addConstr(p[case.job_count] >= _as_float(pn_range.lower), name="case_pn_lb")
+#     if pn_range.upper is not None:
+#         # Important paper/code mismatch to remember during comparison:
+#         # the paper states strict upper bounds, but the model can only encode
+#         # them as non-strict <= constraints.
+#         model.addConstr(p[case.job_count] <= _as_float(pn_range.upper), name="case_pn_ub")
 
 
 def _apply_profile_cardinality_constraints(
