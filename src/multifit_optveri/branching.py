@@ -347,32 +347,17 @@ def iter_fallback_starts(
         yield FallbackStarts()
         return
 
-    prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
     scheduled_job_count = mtf_profile.scheduled_job_count
-    # Lower bounds derived from the current structural understanding:
-    # - s2 starts only after all R2/F2 regular jobs and the first R3 machine.
-    # - s3 starts only after all R2 jobs, all F2 regular/fallback jobs,
-    #   all R3 regular jobs, all F3 regular jobs, and one extra job has already
-    #   been pushed to the next machine.
-    # - s4 starts only after all R2 jobs, all F2 regular/fallback jobs,
-    #   all R3 jobs, all F3 regular/fallback jobs, all R4 jobs, all F4 regular
-    #   jobs, and one extra job has already been pushed to the next machine.
-    s2_structural_min = 2 * prefix_total + 4
-    s3_structural_min = 2 * prefix_total + mtf_profile.nF2 + 3 * mtf_profile.nR3 + 3 * mtf_profile.nF3 + 2
-    s4_structural_min = (
-        2 * prefix_total
-        + mtf_profile.nF2
-        + 3 * mtf_profile.nR3
-        + 4 * mtf_profile.nF3
-        + 4 * mtf_profile.nR4
-        + 4 * mtf_profile.nF4
-        + 2
-    )
+    structural_mins = fallback_start_structural_mins(machine_count, mtf_profile, acceleration_case)
+    s2_structural_min = structural_mins.s2
+    s3_structural_min = structural_mins.s3
+    s4_structural_min = structural_mins.s4
 
     s2_values: tuple[int | None, ...]
     if mtf_profile.nF2 == 0:
         s2_values = (None,)
     else:
+        assert s2_structural_min is not None
         s2_min = s2_structural_min
         s2_max = scheduled_job_count - (mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4) + 1
         s2_values = tuple(range(s2_min, s2_max + 1))
@@ -381,6 +366,7 @@ def iter_fallback_starts(
         if mtf_profile.nF3 == 0:
             s3_values = (None,)
         else:
+            assert s3_structural_min is not None
             s3_min = max(
                 (0 if s2 is None else s2 + mtf_profile.nF2),
                 s3_structural_min,
@@ -398,6 +384,7 @@ def iter_fallback_starts(
                 previous_fallback_end = s3 + mtf_profile.nF3
             elif s2 is not None:
                 previous_fallback_end = s2 + mtf_profile.nF2
+            assert s4_structural_min is not None
             s4_min = max(
                 previous_fallback_end,
                 s4_structural_min,
@@ -405,6 +392,39 @@ def iter_fallback_starts(
             s4_max = scheduled_job_count - mtf_profile.nF4 + 1
             for s4 in range(s4_min, s4_max + 1):
                 yield FallbackStarts(s2=s2, s3=s3, s4=s4)
+
+
+def fallback_start_structural_mins(
+    machine_count: int,
+    mtf_profile: MtfProfile,
+    acceleration_case: AccelerationCase,
+) -> FallbackStarts:
+    """Return the current structural lower bounds for fallback block starts."""
+
+    if acceleration_case is not AccelerationCase.CASE_2:
+        return FallbackStarts()
+
+    prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
+    s2_min = None
+    s3_min = None
+    s4_min = None
+
+    if mtf_profile.nF2 > 0:
+        s2_min = 2 * prefix_total + 4
+    if mtf_profile.nF3 > 0:
+        s3_min = 2 * prefix_total + mtf_profile.nF2 + 3 * mtf_profile.nR3 + 3 * mtf_profile.nF3 + 2
+    if mtf_profile.nF4 > 0:
+        s4_min = (
+            2 * prefix_total
+            + mtf_profile.nF2
+            + 3 * mtf_profile.nR3
+            + 4 * mtf_profile.nF3
+            + 4 * mtf_profile.nR4
+            + 4 * mtf_profile.nF4
+            + 2
+        )
+
+    return FallbackStarts(s2=s2_min, s3=s3_min, s4=s4_min)
 
 
 def _iter_all_mtf_profiles(
