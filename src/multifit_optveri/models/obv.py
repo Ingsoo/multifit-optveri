@@ -181,8 +181,8 @@ def _opt_cardinality_upper_bound(lower_bound: Fraction) -> int:
 def _mtf_cardinality_upper_bound(machine_count: int, target_ratio: Fraction) -> int:
     """Compute the global upper bound on MTF machine cardinality."""
 
-    expression = (Fraction(machine_count, 1) - target_ratio) / (machine_count * (target_ratio - 1))
-    return ceil_fraction(expression) - 1
+    assert target_ratio == PAPER_TARGET_RATIO and machine_count in PAPER_MACHINE_RANGE
+    return 4 if machine_count == 8 else 5
 
 
 def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
@@ -542,12 +542,7 @@ def _apply_mtf_base_profile_constraints(
         # F4 machines are the fallback 5-job machines that appear before the
         # regular 5-machine tail.
         model.addConstr(
-            p[layout.e5 - 4]
-            + p[layout.e5 - 3]
-            + p[layout.e5 - 2]
-            + p[layout.e5 - 1]
-            + p[layout.e5]
-            >= target,
+            p[layout.e5 - 4] + p[layout.e5 - 3] + p[layout.e5 - 2] + p[layout.e5 - 1] + p[layout.e5] >= target,
             name=f"F4_valid_constr[{layout.f4_machines[-1]}]",
         )
 
@@ -625,7 +620,7 @@ def _apply_global_valid_inequalities(
         (
             q[machine_index, job_index] == 0
             for machine_index in machines
-            for job_index in truncated_jobs
+            for job_index in machines
             if machine_index > job_index
         ),
         name="mtf_init_order",

@@ -124,11 +124,8 @@ def _upper_2_machine_block_count(machine_count: int, target_ratio: Fraction) -> 
     coefficient is 4 only at m=8 and 5 for m=9..12.
     """
 
-    ratio_gap = target_ratio - 1
-    raw_value = ceil_fraction((Fraction(machine_count, 1) - target_ratio) / (machine_count * ratio_gap)) - 1
-    if target_ratio == PAPER_TARGET_RATIO and machine_count in PAPER_MACHINE_RANGE:
-        return 4 if machine_count == 8 else 5
-    return raw_value
+    assert target_ratio == PAPER_TARGET_RATIO and machine_count in PAPER_MACHINE_RANGE
+    return 4 if machine_count == 8 else 5
 
 
 def enumerate_cases(
