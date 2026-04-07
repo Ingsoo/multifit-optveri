@@ -339,11 +339,59 @@ def iter_fallback_starts(
     block order F2 -> F3 -> F4 with no reversals.
     """
 
+    if acceleration_case is AccelerationCase.CASE_1:
+        yield FallbackStarts()
+        return
+
     if acceleration_case is not AccelerationCase.CASE_2:
         yield FallbackStarts()
         return
 
-    yield from _iter_case_2_fallback_starts(machine_count, mtf_profile)
+    scheduled_job_count = mtf_profile.scheduled_job_count
+    structural_mins = fallback_start_structural_mins(machine_count, mtf_profile, acceleration_case)
+    s2_structural_min = structural_mins.s2
+    s3_structural_min = structural_mins.s3
+    s4_structural_min = structural_mins.s4
+
+    s2_values: tuple[int | None, ...]
+    if mtf_profile.nF2 == 0:
+        s2_values = (None,)
+    else:
+        assert s2_structural_min is not None
+        s2_min = s2_structural_min
+        s2_max = scheduled_job_count - (mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4) + 1
+        s2_values = tuple(range(s2_min, s2_max + 1))
+
+    for s2 in s2_values:
+        if mtf_profile.nF3 == 0:
+            s3_values = (None,)
+        else:
+            assert s3_structural_min is not None
+            s3_min = max(
+                (0 if s2 is None else s2 + mtf_profile.nF2),
+                s3_structural_min,
+            )
+            s3_max = scheduled_job_count - (mtf_profile.nF3 + mtf_profile.nF4) + 1
+            s3_values = tuple(range(s3_min, s3_max + 1))
+
+        for s3 in s3_values:
+            if mtf_profile.nF4 == 0:
+                yield FallbackStarts(s2=s2, s3=s3, s4=None)
+                continue
+
+            previous_fallback_end = 0
+            if s3 is not None:
+                previous_fallback_end = s3 + mtf_profile.nF3
+            elif s2 is not None:
+                previous_fallback_end = s2 + mtf_profile.nF2
+            assert s4_structural_min is not None
+            s4_min = max(
+                previous_fallback_end,
+                s4_structural_min,
+            )
+            s4_max = scheduled_job_count - mtf_profile.nF4 + 1
+            for s4 in range(s4_min, s4_max + 1):
+                yield FallbackStarts(s2=s2, s3=s3, s4=s4)
 
 
 def fallback_start_structural_mins(
@@ -356,99 +404,6 @@ def fallback_start_structural_mins(
     if acceleration_case is not AccelerationCase.CASE_2:
         return FallbackStarts()
 
-    return _case_2_fallback_start_structural_mins(machine_count, mtf_profile)
-
-
-def _iter_case_2_fallback_starts(
-    machine_count: int,
-    mtf_profile: MtfProfile,
-) -> Iterator[FallbackStarts]:
-    scheduled_job_count = mtf_profile.scheduled_job_count
-    structural_mins = _case_2_fallback_start_structural_mins(machine_count, mtf_profile)
-
-    if mtf_profile.nF2 == 0:
-        yield from _iter_case_2_f3_f4_starts(
-            mtf_profile,
-            scheduled_job_count,
-            s2=None,
-            structural_mins=structural_mins,
-        )
-        return
-
-    assert structural_mins.s2 is not None
-    s2_min = structural_mins.s2
-    s2_max = scheduled_job_count - (mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4) + 1
-    for s2 in range(s2_min, s2_max + 1):
-        yield from _iter_case_2_f3_f4_starts(
-            mtf_profile,
-            scheduled_job_count,
-            s2=s2,
-            structural_mins=structural_mins,
-        )
-
-
-def _iter_case_2_f3_f4_starts(
-    mtf_profile: MtfProfile,
-    scheduled_job_count: int,
-    *,
-    s2: int | None,
-    structural_mins: FallbackStarts,
-) -> Iterator[FallbackStarts]:
-    if mtf_profile.nF3 == 0:
-        yield from _iter_case_2_f4_starts(
-            mtf_profile,
-            scheduled_job_count,
-            s2=s2,
-            s3=None,
-            structural_mins=structural_mins,
-        )
-        return
-
-    assert structural_mins.s3 is not None
-    s3_min = structural_mins.s3
-    if s2 is not None:
-        s3_min = max(s3_min, s2 + mtf_profile.nF2)
-    s3_max = scheduled_job_count - (mtf_profile.nF3 + mtf_profile.nF4) + 1
-    for s3 in range(s3_min, s3_max + 1):
-        yield from _iter_case_2_f4_starts(
-            mtf_profile,
-            scheduled_job_count,
-            s2=s2,
-            s3=s3,
-            structural_mins=structural_mins,
-        )
-
-
-def _iter_case_2_f4_starts(
-    mtf_profile: MtfProfile,
-    scheduled_job_count: int,
-    *,
-    s2: int | None,
-    s3: int | None,
-    structural_mins: FallbackStarts,
-) -> Iterator[FallbackStarts]:
-    if mtf_profile.nF4 == 0:
-        yield FallbackStarts(s2=s2, s3=s3, s4=None)
-        return
-
-    previous_fallback_end = 0
-    if s3 is not None:
-        previous_fallback_end = s3 + mtf_profile.nF3
-    elif s2 is not None:
-        previous_fallback_end = s2 + mtf_profile.nF2
-
-    assert structural_mins.s4 is not None
-    s4_min = max(previous_fallback_end, structural_mins.s4)
-    s4_max = scheduled_job_count - mtf_profile.nF4 + 1
-    for s4 in range(s4_min, s4_max + 1):
-        yield FallbackStarts(s2=s2, s3=s3, s4=s4)
-
-
-def _case_2_fallback_start_structural_mins(
-    machine_count: int,
-    mtf_profile: MtfProfile,
-) -> FallbackStarts:
-    del machine_count
     prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
     s2_min = None
     s3_min = None
