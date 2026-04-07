@@ -15,6 +15,34 @@ from multifit_optveri.branching import (
 )
 
 
+def _legacy_case_2_profiles(machine_count: int, *, max_job_count: int | None = None) -> set[MtfProfile]:
+    profiles: set[MtfProfile] = set()
+    pair_upper = machine_count // 2
+    for pair_total in range(1, pair_upper + 1):
+        tail_total = machine_count - pair_total
+        for nR2 in range(pair_total + 1):
+            nF2 = pair_total - nR2
+            for nF3 in range(tail_total + 1):
+                for nR4 in range(tail_total - nF3 + 1):
+                    for nF4 in range(tail_total - nF3 - nR4 + 1):
+                        remainder = tail_total - nF3 - nR4 - nF4
+                        if (remainder + nF2 + nF4 + 1) % 2 != 0:
+                            continue
+                        nR3 = (remainder + nF2 + nF4 + 1) // 2
+                        nR5 = nR3 - nF2 - nF4 - 1
+                        if nR5 < 0 or nR3 < 0:
+                            continue
+                        if nR3 + nR5 != remainder:
+                            continue
+                        if nF4 + nR5 + 1 != nR3 - nF2:
+                            continue
+                        if 7 * nF3 + 10 * nF4 < 2 * machine_count - 11:
+                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
+                            if max_job_count is None or profile.total_job_count <= max_job_count:
+                                profiles.add(profile)
+    return profiles
+
+
 class BranchingTests(unittest.TestCase):
     def test_mtf_profile_properties(self) -> None:
         profile = MtfProfile(1, 2, 1, 1, 1, 1, 0, 1)
@@ -151,10 +179,10 @@ class BranchingTests(unittest.TestCase):
             [
                 "mtf01340000",
                 "mtf02230100",
-                "mtf03130001",
                 "mtf03120200",
-                "mtf04020101",
+                "mtf03130001",
                 "mtf04010300",
+                "mtf04020101",
             ],
         )
 
@@ -221,6 +249,33 @@ class BranchingTests(unittest.TestCase):
         )
 
         self.assertTrue(any(profile.nF4 > 0 for profile in profiles))
+
+    def test_case_2_new_generation_matches_legacy_generation_when_pair_total_positive(self) -> None:
+        for machine_count in range(8, 13):
+            new_profiles = {
+                profile
+                for profile in iter_mtf_profiles(
+                    machine_count,
+                    None,
+                    AccelerationCase.CASE_2,
+                    max_job_count=200,
+                )
+                if profile.nR2 + profile.nF2 >= 1
+            }
+            legacy_profiles = _legacy_case_2_profiles(machine_count, max_job_count=200)
+            self.assertEqual(new_profiles, legacy_profiles)
+
+    def test_case_2_new_generation_adds_pair_total_zero_profiles(self) -> None:
+        profiles = list(
+            iter_mtf_profiles(
+                12,
+                None,
+                AccelerationCase.CASE_2,
+                max_job_count=200,
+            )
+        )
+
+        self.assertTrue(any(profile.nR2 + profile.nF2 == 0 for profile in profiles))
 
     def test_case_1_profiles_enforce_nf2_minus_nr3_plus_nf4_plus_nr5_plus_one_zero(self) -> None:
         profiles = list(
@@ -292,15 +347,15 @@ class BranchingTests(unittest.TestCase):
         profile = next(
             profile
             for profile in iter_mtf_profiles(
-                12,
-                8,
+                11,
+                None,
                 AccelerationCase.CASE_2,
                 max_job_count=200,
             )
-            if profile.nF2 > 0 and profile.nF4 > 0
+            if profile.compact_id == "mtf00030611"
         )
 
-        starts = list(iter_fallback_starts(12, profile, AccelerationCase.CASE_2))
+        starts = list(iter_fallback_starts(11, profile, AccelerationCase.CASE_2))
 
         self.assertTrue(starts)
         prefix_total = profile.nF1 + profile.nR2 + profile.nF2
@@ -314,12 +369,9 @@ class BranchingTests(unittest.TestCase):
             + 2
         )
         for start in starts:
-            self.assertIsNotNone(start.s2)
+            self.assertIsNone(start.s2)
             self.assertIsNotNone(start.s4)
-            assert start.s2 is not None
             assert start.s4 is not None
-            self.assertGreaterEqual(start.s2, 2 * prefix_total + 4)
-            self.assertGreaterEqual(start.s4, start.s2 + profile.nF2)
             self.assertGreaterEqual(start.s4, structural_s4_min)
 
     def test_case_2_fallback_starts_exact_for_m8_n30_profile(self) -> None:

@@ -313,11 +313,7 @@ def candidate_ells_for_mtf_profile(
     if acceleration_case is AccelerationCase.CASE_2:
         if mtf_profile.nF1 != 0:
             return ()
-        return tuple(
-            ell
-            for ell in (2 * prefix_total + 1, 2 * prefix_total + 2)
-            if ell != 2
-        )
+        return tuple(ell for ell in (2 * prefix_total + 1, 2 * prefix_total + 2) if ell != 2)
 
     if acceleration_case is AccelerationCase.CASE_3_1:
         return (
@@ -362,13 +358,7 @@ def iter_fallback_starts(
     #   all R3 jobs, all F3 regular/fallback jobs, all R4 jobs, all F4 regular
     #   jobs, and one extra job has already been pushed to the next machine.
     s2_structural_min = 2 * prefix_total + 4
-    s3_structural_min = (
-        2 * prefix_total
-        + mtf_profile.nF2
-        + 3 * mtf_profile.nR3
-        + 3 * mtf_profile.nF3
-        + 2
-    )
+    s3_structural_min = 2 * prefix_total + mtf_profile.nF2 + 3 * mtf_profile.nR3 + 3 * mtf_profile.nF3 + 2
     s4_structural_min = (
         2 * prefix_total
         + mtf_profile.nF2
@@ -384,9 +374,7 @@ def iter_fallback_starts(
         s2_values = (None,)
     else:
         s2_min = s2_structural_min
-        s2_max = scheduled_job_count - (
-            mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4
-        ) + 1
+        s2_max = scheduled_job_count - (mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4) + 1
         s2_values = tuple(range(s2_min, s2_max + 1))
 
     for s2 in s2_values:
@@ -452,35 +440,44 @@ def _iter_all_mtf_profiles(
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
-        pair_upper = machine_count // 2
-        for pair_total in range(pair_upper + 1):
-            tail_total = machine_count - pair_total
+        m = machine_count
+        max_nF3 = (2 * m - 12) // 7
+        for pair_total in range(m // 2 + 1):
+            # pair_total = nR2 + nF2
             for nR2 in range(pair_total + 1):
                 nF2 = pair_total - nR2
-                for nF3 in range(tail_total + 1):
-                    for nR4 in range(tail_total - nF3 + 1):
-                        for nF4 in range(tail_total - nF3 - nR4 + 1):
-                            remainder = tail_total - nF3 - nR4 - nF4
-                            # Old unsplit variable was M5 = F4 + R5, so the
-                            # Case 2 relation becomes F4 + R5 + 1 = R3 - F2.
-                            if (remainder + nF2 + nF4 + 1) % 2 != 0:
-                                continue
-                            nR3 = (remainder + nF2 + nF4 + 1) // 2
+                # From nR2 + 2*nR3 + nF3 + nR4 = m + 1 and nR4 >= 0,
+                # we need 2*nR3 <= m + 1 - nR2 - nF3.
+                for nF3 in range(max_nF3 + 1):
+                    max_nR3 = (m + 1 - nR2 - nF3) // 2
+                    if max_nR3 < 0:
+                        continue
+                    # Since nR3 - nF2 = nF4 + nR5 + 1 >= 1,
+                    # we need nR3 >= nF2 + 1.
+                    min_nR3 = nF2 + 1
+                    if min_nR3 > max_nR3:
+                        continue
+                    for nR3 in range(min_nR3, max_nR3 + 1):
+                        nR4 = m + 1 - nR2 - 2 * nR3 - nF3
+                        if nR4 < 0:
+                            continue
+                        # nR5 = nR3 - nF2 - nF4 - 1 >= 0
+                        # so nF4 <= nR3 - nF2 - 1
+                        max_nF4_by_relation = nR3 - nF2 - 1
+                        # 7*nF3 + 10*nF4 < 2*m - 11
+                        max_nF4_by_ineq = (2 * m - 12 - 7 * nF3) // 10
+                        max_nF4 = min(max_nF4_by_relation, max_nF4_by_ineq)
+                        if max_nF4 < 0:
+                            continue
+                        for nF4 in range(max_nF4 + 1):
                             nR5 = nR3 - nF2 - nF4 - 1
-                            if nR5 < 0 or nR3 < 0:
-                                continue
-                            # Make the Case 2 tail identities explicit instead of
-                            # relying only on the algebra above:
-                            # - nR3 + nR5 = tail_total - nF3 - nR4 - nF4
-                            # - nF4 + nR5 + 1 = nR3 - nF2
-                            if nR3 + nR5 != remainder:
-                                continue
                             if nF4 + nR5 + 1 != nR3 - nF2:
                                 continue
-                            if 7 * nF3 + 10 * nF4 < 2 * machine_count - 11:
-                                profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
-                                if max_job_count is None or profile.total_job_count <= max_job_count:
-                                    yield profile
+                            if 7 * nF3 + 10 * nF4 >= 2 * m - 11:
+                                continue
+                            profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
+                            if max_job_count is None or profile.total_job_count <= max_job_count:
+                                yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_3_1:
