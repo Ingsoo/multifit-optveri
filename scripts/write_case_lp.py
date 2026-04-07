@@ -83,7 +83,9 @@ def _parse_fallback_starts(text: str | None) -> FallbackStarts | None:
 
 
 def _case_from_summary(summary_path: Path) -> ExperimentCase:
-    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    raw_text = summary_path.read_text(encoding="utf-8")
+    sanitized_text = raw_text.replace(": infinity", ": null").replace(": -infinity", ": null")
+    payload = json.loads(sanitized_text)
 
     output_dir = Path(payload["output_dir"])
     run_output_root = output_dir.parents[1]

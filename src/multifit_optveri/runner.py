@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
+import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 import csv
@@ -108,14 +109,20 @@ def _model_constraint_total(model: _ConstraintCountModel) -> int:
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8")
 
 
 def _append_jsonl(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True))
+        handle.write(json.dumps(payload, sort_keys=True, allow_nan=False))
         handle.write("\n")
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _write_csv_row(path: Path, fieldnames: list[str], row: dict[str, object], *, write_header: bool = False) -> None:
@@ -408,15 +415,15 @@ def run_case(case: ExperimentCase) -> SolveResult:
         target_ratio=format_ratio(case.target_ratio),
         verification_result=_verification_result(
             status=_status_name(model.Status),
-            objective_value=(float(model.ObjVal) if has_solution else None),
+            objective_value=_finite_or_none(float(model.ObjVal) if has_solution else None),
             target_ratio=format_ratio(case.target_ratio),
         ),
         status=_status_name(model.Status),
-        objective_value=(float(model.ObjVal) if has_solution else None),
-        objective_bound=(float(model.ObjBound) if hasattr(model, "ObjBound") else None),
-        runtime_seconds=(float(model.Runtime) if hasattr(model, "Runtime") else None),
-        node_count=(float(model.NodeCount) if hasattr(model, "NodeCount") else None),
-        mip_gap=(float(model.MIPGap) if has_solution and hasattr(model, "MIPGap") else None),
+        objective_value=_finite_or_none(float(model.ObjVal) if has_solution else None),
+        objective_bound=_finite_or_none(float(model.ObjBound) if hasattr(model, "ObjBound") else None),
+        runtime_seconds=_finite_or_none(float(model.Runtime) if hasattr(model, "Runtime") else None),
+        node_count=_finite_or_none(float(model.NodeCount) if hasattr(model, "NodeCount") else None),
+        mip_gap=_finite_or_none(float(model.MIPGap) if has_solution and hasattr(model, "MIPGap") else None),
         optimal_p_values_desc_exact=optimal_p_values_desc_exact,
         optimal_p_values_desc=optimal_p_values_desc,
         output_dir=str(case.output_dir),

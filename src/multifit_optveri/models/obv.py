@@ -229,12 +229,22 @@ def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
         )
 
 
+def _use_case_2_exact_mtf(case: ExperimentCase) -> bool:
+    """Return whether Case 2 should use the reduced exact-MTF encoding."""
+
+    return (
+        case.acceleration_case is AccelerationCase.CASE_2
+        and case.mtf_profile is not None
+        and case.fallback_starts is not None
+    )
+
+
 def _apply_profile_cardinality_constraints(
     model: GurobiModel,
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    q: TupleVarMap,
+    q: TupleVarMap | None,
     jobs: range,
     truncated_jobs: range,
     machines: range,
@@ -282,12 +292,13 @@ def _apply_profile_cardinality_constraints(
                 case,
                 p,
                 x,
-                q,
                 machines,
                 target,
                 layout,
             )
         else:
+            if q is None:
+                raise ValueError("Generic MTF profile constraints require q variables.")
             # Fix the number of jobs on each MTF machine according to the chosen
             # coarse MTF profile branch, then refine with profile-specific cuts.
             for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
@@ -559,8 +570,8 @@ def _apply_global_valid_inequalities(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    q: TupleVarMap,
-    s: TupleVarMap,
+    q: TupleVarMap | None,
+    s: TupleVarMap | None,
     jobs: range,
     truncated_jobs: range,
     machines: range,
@@ -616,15 +627,16 @@ def _apply_global_valid_inequalities(
                 name="opt_smallest_jobs_sum",
             )
 
-    model.addConstrs(
-        (
-            q[machine_index, job_index] == 0
-            for machine_index in machines
-            for job_index in machines
-            if machine_index > job_index
-        ),
-        name="mtf_init_order",
-    )
+    if q is not None:
+        model.addConstrs(
+            (
+                q[machine_index, job_index] == 0
+                for machine_index in machines
+                for job_index in machines
+                if machine_index > job_index
+            ),
+            name="mtf_init_order",
+        )
     if case.mtf_profile is None:
         model.addConstrs(
             (
@@ -640,14 +652,15 @@ def _apply_global_valid_inequalities(
             ),
             name="mtf_cardinality_ub",
         )
-    model.addConstrs(
-        (
-            gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
-            == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
-            for job_index in range(2, case.job_count)
-        ),
-        name="mtf_balance",
-    )
+    if s is not None:
+        model.addConstrs(
+            (
+                gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
+                == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
+                for job_index in range(2, case.job_count)
+            ),
+            name="mtf_balance",
+        )
 
     if case.solver.legacy_best_bd_stop_at_target and case.enforce_target_lower_bound:
         # Legacy option carried over from the old implementation.
@@ -1101,6 +1114,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     truncated_jobs = range(1, case.job_count)
     target = _as_float(case.target_ratio)
     processing_time_lower_bound = _processing_time_lower_bound(case)
+    use_case_2_exact_mtf = _use_case_2_exact_mtf(case)
 
     # Variable creation: compare these domains with the paper's variable
     # definitions, keeping in mind that the bounds are solver-strengthening
@@ -1122,8 +1136,11 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             name=f"p[{job_index}]",
         )
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
-    q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
-    s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
+    q: TupleVarMap | None = None
+    s: TupleVarMap | None = None
+    if not use_case_2_exact_mtf:
+        q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
+        s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
     z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
 
     # Section 4 base MIQP constraints start here.
@@ -1143,45 +1160,47 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="opt_makespan",
     )
 
-    model.addConstrs(
-        # Every job except n is assigned in the simulated MTF schedule.
-        (gp.quicksum(q[i, j] for i in machines) == 1 for j in truncated_jobs),
-        name="mtf_assign",
-    )
-    model.addConstrs(
-        # Initialization of machine partial sums in MTF.
-        (s[i, 1] == q[i, 1] * p[1] for i in machines),
-        name="mtf_init",
-    )
-    model.addConstrs(
-        (
-            # Incremental update of each machine load under MTF.
-            s[i, j] - s[i, j - 1] == q[i, j] * p[j]
-            for i in machines
-            for j in range(2, case.job_count)
-        ),
-        name="mtf_contribution",
-    )
-    model.addConstrs(
-        # All truncated MTF loads must stay within the target ratio.
-        (s[i, j] <= target for i in machines for j in truncated_jobs),
-        name="mtf_feasible",
-    )
-    model.addConstrs(
-        (
-            # If job j is not assigned to any machine up to i, then machine i
-            # must already be too full to receive it.
-            s[i, j - 1] + p[j] >= target * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
-            for i in machines
-            for j in range(2, case.job_count)
-        ),
-        name="mtf_logic",
-    )
-    model.addConstrs(
-        # Objective value z_var is the minimum post-n overload across machines.
-        (s[i, case.job_count - 1] + p[case.job_count] >= z_var for i in machines),
-        name="mtf_objective",
-    )
+    if not use_case_2_exact_mtf:
+        assert q is not None and s is not None
+        model.addConstrs(
+            # Every job except n is assigned in the simulated MTF schedule.
+            (gp.quicksum(q[i, j] for i in machines) == 1 for j in truncated_jobs),
+            name="mtf_assign",
+        )
+        model.addConstrs(
+            # Initialization of machine partial sums in MTF.
+            (s[i, 1] == q[i, 1] * p[1] for i in machines),
+            name="mtf_init",
+        )
+        model.addConstrs(
+            (
+                # Incremental update of each machine load under MTF.
+                s[i, j] - s[i, j - 1] == q[i, j] * p[j]
+                for i in machines
+                for j in range(2, case.job_count)
+            ),
+            name="mtf_contribution",
+        )
+        model.addConstrs(
+            # All truncated MTF loads must stay within the target ratio.
+            (s[i, j] <= target for i in machines for j in truncated_jobs),
+            name="mtf_feasible",
+        )
+        model.addConstrs(
+            (
+                # If job j is not assigned to any machine up to i, then machine i
+                # must already be too full to receive it.
+                s[i, j - 1] + p[j] >= target * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
+                for i in machines
+                for j in range(2, case.job_count)
+            ),
+            name="mtf_logic",
+        )
+        model.addConstrs(
+            # Objective value z_var is the minimum post-n overload across machines.
+            (s[i, case.job_count - 1] + p[case.job_count] >= z_var for i in machines),
+            name="mtf_objective",
+        )
 
     # Global strengthenings used in all runs. Audit separately from the pure
     # base MIQP if you want to know what is paper-essential vs solver-helpful.
@@ -1321,7 +1340,6 @@ def _apply_case_2_exact_mtf_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    q: TupleVarMap,
     machines: range,
     target: float,
     layout: MtfProfileLayout,
@@ -1332,22 +1350,26 @@ def _apply_case_2_exact_mtf_constraints(
     if profile is None or case.fallback_starts is None:
         return
 
-    assignment = _apply_case_2_fallback_start_assignments(model, case, q, layout)
+    assignment = _build_case_2_exact_assignment(case, layout)
+    fallback_machines = set(layout.f2_machines) | set(layout.f3_machines) | set(layout.f4_machines)
 
-    def add_machine_valid(machine_jobs: tuple[int, ...], *, with_pn: bool, name: str) -> None:
-        expr = gp.quicksum(p[job_index] for job_index in machine_jobs)
-        if with_pn:
-            expr += p[case.job_count]
-        model.addConstr(expr >= target, name=name)
+    # Every machine's load + p_n >= target.
+    for machine_index, machine_jobs in assignment.items():
+        model.addConstr(
+            gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= target,
+            name=f"case2_exact_mtf_objective[{machine_index}]",
+        )
 
-    def add_fallback_machine_valid(
-        regular_jobs: tuple[int, ...],
-        *,
-        name: str,
-    ) -> None:
+    # Fallback machines: regular prefix + next sequential job >= target
+    # (explains why the next job didn't fit and a fallback was placed instead).
+    for machine_index in fallback_machines:
+        machine_jobs = assignment[machine_index]
+        regular_jobs = machine_jobs[:-1]
         next_job = regular_jobs[-1] + 1
-        expr = gp.quicksum(p[job_index] for job_index in regular_jobs) + p[next_job]
-        model.addConstr(expr >= target, name=name)
+        model.addConstr(
+            gp.quicksum(p[j] for j in regular_jobs) + p[next_job] >= target,
+            name=f"case2_exact_mtf_fallback[{machine_index}]",
+        )
 
     def add_rk_equal_processing(
         machine_block: tuple[int, ...],
@@ -1443,13 +1465,9 @@ def _apply_case_2_exact_mtf_constraints(
             )
 
     if layout.r2_machines:
-        last_r2_jobs = assignment[layout.r2_machines[-1]]
-        add_machine_valid(last_r2_jobs, with_pn=True, name=f"R2_valid_constr[{layout.r2_machines[-1]}]")
         add_rk_equal_processing(layout.r2_machines, k=2, name_prefix="R2")
 
     if layout.f2_machines:
-        last_f2_jobs = assignment[layout.f2_machines[-1]][:2]
-        add_fallback_machine_valid(last_f2_jobs, name=f"F2_valid_constr[{layout.f2_machines[-1]}]")
         add_fk_regular_equal_processing(layout.f2_machines, k=2, name_prefix="F2")
         add_fallback_block_equal_processing(
             tuple(job_index for machine_index in layout.f2_machines for job_index in assignment[machine_index][2:]),
@@ -1457,13 +1475,9 @@ def _apply_case_2_exact_mtf_constraints(
         )
 
     if layout.r3_machines:
-        last_r3_jobs = assignment[layout.r3_machines[-1]]
-        add_machine_valid(last_r3_jobs, with_pn=True, name=f"R3_valid_constr[{layout.r3_machines[-1]}]")
         add_rk_equal_processing(layout.r3_machines, k=3, name_prefix="R3")
 
     if layout.f3_machines:
-        last_f3_jobs = assignment[layout.f3_machines[-1]][:3]
-        add_fallback_machine_valid(last_f3_jobs, name=f"F3_valid_constr[{layout.f3_machines[-1]}]")
         add_fk_regular_equal_processing(layout.f3_machines, k=3, name_prefix="F3")
         add_fallback_block_equal_processing(
             tuple(job_index for machine_index in layout.f3_machines for job_index in assignment[machine_index][3:]),
@@ -1471,13 +1485,9 @@ def _apply_case_2_exact_mtf_constraints(
         )
 
     if layout.r4_machines:
-        last_r4_jobs = assignment[layout.r4_machines[-1]]
-        add_machine_valid(last_r4_jobs, with_pn=True, name=f"R4_valid_constr[{layout.r4_machines[-1]}]")
         add_rk_equal_processing(layout.r4_machines, k=4, name_prefix="R4")
 
     if layout.f4_machines:
-        last_f4_jobs = assignment[layout.f4_machines[-1]][:4]
-        add_fallback_machine_valid(last_f4_jobs, name=f"F4_valid_constr[{layout.f4_machines[-1]}]")
         add_fk_regular_equal_processing(layout.f4_machines, k=4, name_prefix="F4")
         add_fallback_block_equal_processing(
             tuple(job_index for machine_index in layout.f4_machines for job_index in assignment[machine_index][4:]),
@@ -1485,6 +1495,4 @@ def _apply_case_2_exact_mtf_constraints(
         )
 
     if layout.r5_machines:
-        last_r5_jobs = assignment[layout.r5_machines[-1]]
-        add_machine_valid(last_r5_jobs, with_pn=True, name=f"R5_valid_constr[{layout.r5_machines[-1]}]")
         add_rk_equal_processing(layout.r5_machines, k=5, name_prefix="R5")
