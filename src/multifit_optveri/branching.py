@@ -25,22 +25,25 @@ class MtfProfile:
     m2f: int = 0
     m3r: int = 0
     m3f: int = 0
-    m4: int = 0
+    m4r: int = 0
     m4f: int = 0
-    m5: int = 0
+    m5r: int = 0
 
     @property
     def machine_count(self) -> int:
         """Total number of machines represented by this profile."""
 
-        return self.m1f + self.m2r + self.m2f + self.m3r + self.m3f + self.m4 + self.m4f + self.m5
+        return self.m1f + self.m2r + self.m2f + self.m3r + self.m3f + self.m4r + self.m4f + self.m5r
 
     @property
     def scheduled_job_count(self) -> int:
         """Number of jobs that MTF successfully places before job n fails."""
 
         return (
-            2 * (self.m1f + self.m2r) + 3 * (self.m2f + self.m3r) + 4 * (self.m3f + self.m4) + 5 * (self.m4f + self.m5)
+            2 * (self.m1f + self.m2r)
+            + 3 * (self.m2f + self.m3r)
+            + 4 * (self.m3f + self.m4r)
+            + 5 * (self.m4f + self.m5r)
         )
 
     @property
@@ -50,7 +53,7 @@ class MtfProfile:
 
     @property
     def compact_id(self) -> str:
-        return f"mtf{self.m1f}{self.m2r}{self.m2f}{self.m3r}{self.m3f}{self.m4}{self.m4f}{self.m5}"
+        return f"mtf{self.m1f}{self.m2r}{self.m2f}{self.m3r}{self.m3f}{self.m4r}{self.m4f}{self.m5r}"
 
     @property
     def machine_cardinalities(self) -> tuple[int, ...]:
@@ -59,8 +62,8 @@ class MtfProfile:
         return (
             (2,) * (self.m1f + self.m2r)
             + (3,) * (self.m2f + self.m3r)
-            + (4,) * (self.m3f + self.m4)
-            + (5,) * (self.m4f + self.m5)
+            + (4,) * (self.m3f + self.m4r)
+            + (5,) * (self.m4f + self.m5r)
         )
 
     @property
@@ -85,7 +88,7 @@ class MtfProfile:
 
     @property
     def nR4(self) -> int:
-        return self.m4
+        return self.m4r
 
     @property
     def nF4(self) -> int:
@@ -93,7 +96,7 @@ class MtfProfile:
 
     @property
     def nR5(self) -> int:
-        return self.m5
+        return self.m5r
 
     @property
     def nM5(self) -> int:
