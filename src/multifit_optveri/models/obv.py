@@ -218,21 +218,21 @@ def _apply_paper_acceleration_constraints(
     # These are the common Section 5 conditions that apply before any profile-
     # specific reasoning: common p_n lower bound, cardinality limits, and the
     # top-level case interval on p_n.
-    common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
+    # common_lb = _as_float(paper_common_pn_lower_bound(case.machine_count))
 
-    model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
+    # model.addConstr(p[case.job_count] >= common_lb, name="pn_common_lb")
     # Common Proposition/Observation consequences:
     # - all OPT machines have bounded cardinality
     # - OPT machine sizes are sorted nondecreasingly
     # - all MTF machines have bounded cardinality
-    model.addConstrs(
-        (gp.quicksum(x[i, j] for j in jobs) <= 5 for i in machines),
-        name="opt_cardinality",
-    )
-    model.addConstrs(
-        (gp.quicksum(q[i, j] for j in truncated_jobs) <= 5 for i in machines),
-        name="mtf_cardinality",
-    )
+    # model.addConstrs(
+    #     (gp.quicksum(x[i, j] for j in jobs) <= 5 for i in machines),
+    #     name="opt_cardinality",
+    # )
+    # model.addConstrs(
+    #     (gp.quicksum(q[i, j] for j in truncated_jobs) <= 5 for i in machines),
+    #     name="mtf_cardinality",
+    # )
 
     pn_range = case.acceleration_case.pn_range
     if pn_range.lower is not None:
