@@ -1114,18 +1114,22 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         include_profile_cardinality_constraints=(case.mtf_profile is not None or case.opt_profile is not None),
     )
 
-    model = gp.Model(f"obv_{case.case_id}")
-    # Solver parameter pass-through from the config file.
-    model.Params.NonConvex = case.solver.non_convex
-    model.Params.OutputFlag = case.solver.output_flag
+    env = gp.Env(empty=True)
+    env.setParam("OutputFlag", case.solver.output_flag)
+    env.setParam("LogToConsole", case.solver.output_flag)
+    env.setParam("NonConvex", case.solver.non_convex)
     if case.solver.time_limit_seconds is not None:
-        model.Params.TimeLimit = case.solver.time_limit_seconds
+        env.setParam("TimeLimit", case.solver.time_limit_seconds)
     if case.solver.mip_gap is not None:
-        model.Params.MIPGap = case.solver.mip_gap
+        env.setParam("MIPGap", case.solver.mip_gap)
     if case.solver.threads is not None:
-        model.Params.Threads = case.solver.threads
+        env.setParam("Threads", case.solver.threads)
     if case.solver.presolve is not None:
-        model.Params.Presolve = case.solver.presolve
+        env.setParam("Presolve", case.solver.presolve)
+    env.start()
+
+    model = gp.Model(f"obv_{case.case_id}", env=env)
+    setattr(model, "_multifit_env", env)
 
     machines = range(1, case.machine_count + 1)
     jobs = range(1, case.job_count + 1)
