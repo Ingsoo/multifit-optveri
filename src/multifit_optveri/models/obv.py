@@ -285,8 +285,8 @@ def _apply_profile_cardinality_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    z_var: GurobiVar | None,
-    q: TupleVarMap | None,
+    z_var: GurobiVar,
+    q: TupleVarMap,
     jobs: range,
     truncated_jobs: range,
     machines: range,
@@ -632,8 +632,8 @@ def _apply_global_valid_inequalities(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    q: TupleVarMap | None,
-    s: TupleVarMap | None,
+    q: TupleVarMap,
+    s: TupleVarMap,
     jobs: range,
     truncated_jobs: range,
     machines: range,
@@ -689,17 +689,16 @@ def _apply_global_valid_inequalities(
                 name="opt_smallest_jobs_sum",
             )
 
-    if q is not None:
-        model.addConstrs(
-            (
-                q[machine_index, job_index] == 0
-                for machine_index in machines
-                for job_index in machines
-                if machine_index > job_index
-            ),
-            name="mtf_init_order",
-        )
-    if case.mtf_profile is None and q is not None:
+    model.addConstrs(
+        (
+            q[machine_index, job_index] == 0
+            for machine_index in machines
+            for job_index in machines
+            if machine_index > job_index
+        ),
+        name="mtf_init_order",
+    )
+    if case.mtf_profile is None:
         model.addConstrs(
             (
                 2 <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
@@ -714,15 +713,14 @@ def _apply_global_valid_inequalities(
             ),
             name="mtf_cardinality_ub",
         )
-    if s is not None:
-        model.addConstrs(
-            (
-                gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
-                == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
-                for job_index in range(2, case.job_count)
-            ),
-            name="mtf_balance",
-        )
+    model.addConstrs(
+        (
+            gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
+            == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
+            for job_index in range(2, case.job_count)
+        ),
+        name="mtf_balance",
+    )
 
     if case.solver.legacy_best_bd_stop_at_target and case.enforce_target_lower_bound:
         # Legacy option carried over from the old implementation.
@@ -811,7 +809,7 @@ def _apply_case_profile_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    q: TupleVarMap | None,
+    q: TupleVarMap,
     jobs: range,
     truncated_jobs: range,
     machines: range,
@@ -855,7 +853,7 @@ def _apply_case_profile_constraints(
             )
         return
 
-    if case.ell is None or q is None:
+    if case.ell is None:
         return
 
     ell = case.ell
@@ -1224,8 +1222,8 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         )
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
     z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
-    q: TupleVarMap | None = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
-    s: TupleVarMap | None = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
+    q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
+    s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
 
     # CHECKED(2026-04-08): sorting processing times, OPT-related constraints
     model.addConstrs(
@@ -1244,8 +1242,6 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="opt_makespan",
     )
 
-    assert q is not None and s is not None
-    assert z_var is not None
     model.addConstrs(
         # Every job except n is assigned in the simulated MTF schedule.
         (gp.quicksum(q[i, j] for i in machines) == 1 for j in truncated_jobs),
@@ -1434,7 +1430,7 @@ def _apply_exact_mtf_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    z_var: GurobiVar | None,
+    z_var: GurobiVar,
     machines: range,
     target: float,
     layout: MtfProfileLayout,
@@ -1449,8 +1445,6 @@ def _apply_exact_mtf_constraints(
     fallback_machines = set(layout.f2_machines) | set(layout.f3_machines) | set(layout.f4_machines)
 
     # Every machine's load + p_n upper-bounds the objective z_var.
-    if z_var is None:
-        raise ValueError("Exact MTF constraints require z_var.")
     for machine_index, machine_jobs in assignment.items():
         model.addConstr(
             gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= z_var,
