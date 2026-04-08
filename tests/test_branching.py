@@ -95,7 +95,7 @@ class BranchingTests(unittest.TestCase):
     def test_case_3_opt_profiles_only_enforce_ns3_prefix_lower_bound(self) -> None:
         mtf_profile = MtfProfile(1, 0, 0, 0, 0, 6, 0, 1)
 
-        profiles = list(iter_opt_profiles(8, 3, AccelerationCase.CASE_3, mtf_profile=mtf_profile))
+        profiles = list(iter_opt_profiles(8, None, AccelerationCase.CASE_3, mtf_profile=mtf_profile))
 
         self.assertIn(OptProfile(1, 6, 1, pattern="generic"), profiles)
         self.assertNotIn(OptProfile(0, 8, 0, pattern="generic"), profiles)
@@ -117,6 +117,14 @@ class BranchingTests(unittest.TestCase):
                 AccelerationCase.CASE_2,
             ),
             (9, 10),
+        )
+        self.assertEqual(
+            candidate_ells_for_mtf_profile(
+                8,
+                MtfProfile(1, 0, 0, 0, 0, 7, 0, 0),
+                AccelerationCase.CASE_3,
+            ),
+            (),
         )
         self.assertEqual(
             candidate_ells_for_mtf_profile(

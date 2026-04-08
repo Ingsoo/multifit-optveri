@@ -210,11 +210,15 @@ def enumerate_cases(
                         current_acceleration_case,
                     )
                 for fallback_starts in fallback_start_options:
-                    for ell in candidate_ells_for_mtf_profile(
-                        machine_count,
-                        mtf_profile,
-                        current_acceleration_case,
-                    ):
+                    if current_acceleration_case is AccelerationCase.CASE_3:
+                        ell_values: tuple[int | None, ...] = (None,)
+                    else:
+                        ell_values = candidate_ells_for_mtf_profile(
+                            machine_count,
+                            mtf_profile,
+                            current_acceleration_case,
+                        )
+                    for ell in ell_values:
                         job_count = mtf_profile.total_job_count
                         if job_count not in allowed_job_counts:
                             continue

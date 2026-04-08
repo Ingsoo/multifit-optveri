@@ -197,7 +197,7 @@ def ell_iterator(
 
 def iter_opt_profiles(
     machine_count: int,
-    ell: int,
+    ell: int | None,
     acceleration_case: AccelerationCase,
     *,
     mtf_profile: MtfProfile | None = None,
@@ -206,12 +206,16 @@ def iter_opt_profiles(
     # It intentionally captures coarse profile families; the detailed structural
     # consequences of a profile are enforced later in `models/obv.py`.
     if acceleration_case is AccelerationCase.CASE_1:
+        if ell is None:
+            return
         profile = OptProfile(m3=ell - 1, m4=machine_count - ell + 1, m5=0, pattern="case1")
         if mtf_profile is None or profile.total_job_count == mtf_profile.total_job_count:
             yield profile
         return
 
     if acceleration_case is AccelerationCase.CASE_2:
+        if ell is None:
+            return
         if ell == 2:
             return
         if ell % 2 == 0:
@@ -237,9 +241,13 @@ def iter_opt_profiles(
         return
 
     if acceleration_case is AccelerationCase.CASE_3_1:
+        if ell is None:
+            return
         yield from _iter_case_3_1_opt_profiles(machine_count, ell, mtf_profile=mtf_profile)
         return
 
+    if ell is None:
+        return
     yield from _iter_case_3_2_opt_profiles(machine_count, ell, mtf_profile=mtf_profile)
 
 
@@ -363,11 +371,7 @@ def candidate_ells_for_mtf_profile(
         return tuple(ell for ell in (2 * prefix_total + 1, 2 * prefix_total + 2) if ell != 2)
 
     if acceleration_case is AccelerationCase.CASE_3:
-        return (
-            2 * prefix_total + 1,
-            2 * prefix_total + 2,
-            2 * prefix_total + 3,
-        )
+        return ()
 
     if acceleration_case is AccelerationCase.CASE_3_1:
         return (

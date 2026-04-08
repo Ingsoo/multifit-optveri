@@ -222,7 +222,7 @@ class ObvBuildTests(unittest.TestCase):
             acceleration_case=AccelerationCase.CASE_3,
             machine_count=8,
             job_count=25,
-            ell=3,
+            ell=None,
             mtf_profile=MtfProfile(3, 1, 0, 0, 0, 4, 0, 0),
             opt_profile=OptProfile(7, 1, 0, pattern="generic"),
             fallback_starts=FallbackStarts(None, None, None),
@@ -236,6 +236,10 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNone(model.getVarByName("Z"))
             self.assertIsNotNone(model.getConstrByName("exact_mtf_objective[1]"))
             self.assertIsNotNone(model.getConstrByName("F1_fallback_processing_times[5]"))
+            self.assertIsNotNone(model.getConstrByName("processing_time_in_D[1]"))
+            self.assertIsNotNone(model.getConstrByName("processing_time_in_D_prime[12]"))
+            self.assertIsNone(model.getConstrByName("processing_time_in_D_prime[7]"))
+            self.assertIsNone(model.getConstrByName("processing_time_in_D_prime[11]"))
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_objective[1]"),
                 ["p[1]", "p[5]", "p[25]"],

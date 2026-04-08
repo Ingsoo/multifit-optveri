@@ -183,12 +183,23 @@ def _tighten_processing_time_bounds_by_split(
     adds the constant-domain strengthening implied by them.
     """
 
-    if case.ell is None or job_index == case.job_count:
+    if job_index == case.job_count:
         return lower_bound, upper_bound
 
     split_gap = Fraction(3, 17)
     pn_lower_bound = _processing_time_lower_bound(case)
     pn_upper_bound = _processing_time_upper_bound(case, case.job_count, pn_lower_bound)
+
+    if case.acceleration_case is AccelerationCase.CASE_3 and case.mtf_profile is not None:
+        prefix_total = case.mtf_profile.nF1 + case.mtf_profile.nR2 + case.mtf_profile.nF2
+        if job_index <= 2 * prefix_total:
+            lower_bound = max(lower_bound, pn_lower_bound + split_gap)
+        elif job_index >= 2 * prefix_total + 4:
+            upper_bound = min(upper_bound, pn_upper_bound + split_gap)
+        return lower_bound, upper_bound
+
+    if case.ell is None:
+        return lower_bound, upper_bound
 
     if job_index < case.ell:
         lower_bound = max(lower_bound, pn_lower_bound + split_gap)
@@ -257,7 +268,20 @@ def _apply_profile_cardinality_constraints(
     # resulting model still differs, this is the next file section to inspect.
     layout: MtfProfileLayout | None = None
 
-    if case.ell is not None:
+    if case.acceleration_case is AccelerationCase.CASE_3 and case.mtf_profile is not None:
+        prefix_total = case.mtf_profile.nF1 + case.mtf_profile.nR2 + case.mtf_profile.nF2
+        for job_index in range(1, case.job_count):
+            if job_index <= 2 * prefix_total:
+                model.addConstr(
+                    p[job_index] >= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
+                    name=f"processing_time_in_D[{job_index}]",
+                )
+            elif job_index >= 2 * prefix_total + 4:
+                model.addConstr(
+                    p[job_index] <= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
+                    name=f"processing_time_in_D_prime[{job_index}]",
+                )
+    elif case.ell is not None:
         # This is the D / D' split from Section 5:
         # jobs before ell belong to D, jobs from ell onward belong to D'.
         for job_index in range(1, case.job_count):
@@ -318,7 +342,9 @@ def _apply_profile_cardinality_constraints(
                 layout,
             )
 
-    if case.opt_profile is not None and layout is not None and case.ell is not None:
+    if case.opt_profile is not None and layout is not None and (
+        case.ell is not None or case.acceleration_case is AccelerationCase.CASE_3
+    ):
         _apply_case_profile_constraints(
             model,
             case,
@@ -749,7 +775,7 @@ def _apply_case_profile_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    q: TupleVarMap,
+    q: TupleVarMap | None,
     jobs: range,
     truncated_jobs: range,
     machines: range,
@@ -770,14 +796,34 @@ def _apply_case_profile_constraints(
     # branches with the paper's Case 1, Case 2, Case 3-1, and Case 3-2 results.
     # If you suspect a mismatch with the paper, this is usually the first place
     # to inspect after checking the iterators in `branching.py`.
-    if case.opt_profile is None or case.mtf_profile is None or case.ell is None:
+    if case.opt_profile is None or case.mtf_profile is None:
         return
 
     profile = case.mtf_profile
-    ell = case.ell
     machine_ids = tuple(machines)
-    job_ids = tuple(jobs)
     s3_machines, _, s5_machines = _build_opt_machine_groups(case, machines)
+
+    if case.acceleration_case is AccelerationCase.CASE_3:
+        s3_prefix_count = 2 * (profile.nF1 + profile.nR2) - 1
+        if s3_prefix_count > 0:
+            model.addConstrs(
+                (
+                    gp.quicksum(x[machine_index, job_index] for job_index in jobs) == 3
+                    for machine_index in machine_ids[:s3_prefix_count]
+                ),
+                name="case3_always_S3_constr",
+            )
+            model.addConstrs(
+                (x[machine_index, machine_index] == 1 for machine_index in machine_ids[:s3_prefix_count]),
+                name="case3_prefix_diag_constr",
+            )
+        return
+
+    if case.ell is None or q is None:
+        return
+
+    ell = case.ell
+    job_ids = tuple(jobs)
 
     if case.acceleration_case is AccelerationCase.CASE_1:
         # Case 1: p_n >= 11/51.
@@ -852,22 +898,6 @@ def _apply_case_profile_constraints(
             (x[machine_index, machine_index] == 1 for machine_index in s3_machines),
             name="case2_OPT_ell_assignment_constr",
         )
-        return
-
-    if case.acceleration_case is AccelerationCase.CASE_3:
-        s3_prefix_count = 2 * (profile.nF1 + profile.nR2) - 1
-        if s3_prefix_count > 0:
-            model.addConstrs(
-                (
-                    gp.quicksum(x[machine_index, job_index] for job_index in jobs) == 3
-                    for machine_index in machine_ids[:s3_prefix_count]
-                ),
-                name="case3_always_S3_constr",
-            )
-            model.addConstrs(
-                (x[machine_index, machine_index] == 1 for machine_index in machine_ids[:s3_prefix_count]),
-                name="case3_prefix_diag_constr",
-            )
         return
 
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
