@@ -58,7 +58,7 @@ class GurobiUnavailableError(RuntimeError):
 
 
 OPT_JOB_CARDINALITY_LOWER_BOUND = 3
-BOUND_STOP_TOLERANCE = 1e-6
+BOUND_STOP_TOLERANCE = 0
 
 
 @dataclass
@@ -244,6 +244,7 @@ def _apply_profile_cardinality_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
+    z_var: GurobiVar,
     q: TupleVarMap | None,
     jobs: range,
     truncated_jobs: range,
@@ -292,6 +293,7 @@ def _apply_profile_cardinality_constraints(
                 case,
                 p,
                 x,
+                z_var,
                 machines,
                 target,
                 layout,
@@ -855,16 +857,6 @@ def _apply_case_profile_constraints(
         return
 
     if case.acceleration_case is AccelerationCase.CASE_3:
-        if s5_machines and prefix_end >= 1:
-            model.addConstrs(
-                (
-                    x[machine_index, job_index] == 0
-                    for machine_index in s5_machines
-                    for job_index in range(1, prefix_end + 1)
-                ),
-                name="case3_OPT_no5_constr",
-            )
-
         s3_prefix_count = 2 * (profile.nF1 + profile.nR2) - 1
         if s3_prefix_count > 0:
             model.addConstrs(
@@ -873,6 +865,10 @@ def _apply_case_profile_constraints(
                     for machine_index in machine_ids[:s3_prefix_count]
                 ),
                 name="case3_always_S3_constr",
+            )
+            model.addConstrs(
+                (x[machine_index, machine_index] == 1 for machine_index in machine_ids[:s3_prefix_count]),
+                name="case3_prefix_diag_constr",
             )
         return
 
@@ -1256,6 +1252,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             case,
             p,
             x,
+            z_var,
             q,
             jobs,
             truncated_jobs,
@@ -1364,6 +1361,7 @@ def _apply_exact_mtf_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
+    z_var: GurobiVar,
     machines: range,
     target: float,
     layout: MtfProfileLayout,
@@ -1380,7 +1378,7 @@ def _apply_exact_mtf_constraints(
     # Every machine's load + p_n >= target.
     for machine_index, machine_jobs in assignment.items():
         model.addConstr(
-            gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= target,
+            gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= z_var,
             name=f"exact_mtf_objective[{machine_index}]",
         )
 

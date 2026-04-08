@@ -193,7 +193,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("exact_mtf_fallback[1]"))
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_objective[1]"),
-                ["p[1]", "p[2]", "p[6]", "p[30]"],
+                ["p[1]", "p[2]", "p[6]", "p[30]", "Z"],
             )
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_fallback[1]"),
@@ -236,7 +236,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("F1_fallback_processing_times[5]"))
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_objective[1]"),
-                ["p[1]", "p[5]", "p[25]"],
+                ["p[1]", "p[5]", "p[25]", "Z"],
             )
         finally:
             built.model.dispose()
