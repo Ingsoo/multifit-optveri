@@ -117,6 +117,15 @@ class RunnerTests(unittest.TestCase):
             _verification_result(status="TIME_LIMIT", objective_value=None, target_ratio="20/17"),
             "UNKNOWN",
         )
+        self.assertEqual(
+            _verification_result(
+                status="OPTIMAL",
+                objective_value=None,
+                target_ratio="20/17",
+                feasibility_only=True,
+            ),
+            "NOT_VERIFIED",
+        )
 
     def test_profile_format_helpers(self) -> None:
         case = ExperimentCase(

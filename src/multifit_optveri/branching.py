@@ -232,8 +232,43 @@ def iter_opt_profiles(
             yield profile
         return
 
+    if acceleration_case is AccelerationCase.CASE_3:
+        yield from _iter_case_3_opt_profiles(machine_count, mtf_profile=mtf_profile)
+        return
+
+    if acceleration_case is AccelerationCase.CASE_3_1:
+        yield from _iter_case_3_1_opt_profiles(machine_count, ell, mtf_profile=mtf_profile)
+        return
+
+    yield from _iter_case_3_2_opt_profiles(machine_count, ell, mtf_profile=mtf_profile)
+
+
+def _iter_case_3_opt_profiles(
+    machine_count: int,
+    *,
+    mtf_profile: MtfProfile | None,
+) -> Iterator[OptProfile]:
     for nS3, nS4, nS5 in product(range(machine_count + 1), repeat=3):
-        # Generic Case 3 search over all coarse OPT cardinality profiles.
+        if nS3 + nS4 + nS5 != machine_count:
+            continue
+
+        profile = OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+        if mtf_profile is None:
+            yield profile
+            continue
+        if profile.total_job_count != mtf_profile.total_job_count:
+            continue
+        if _case_3_opt_profile_matches(mtf_profile, profile):
+            yield profile
+
+
+def _iter_case_3_1_opt_profiles(
+    machine_count: int,
+    ell: int,
+    *,
+    mtf_profile: MtfProfile | None,
+) -> Iterator[OptProfile]:
+    for nS3, nS4, nS5 in product(range(machine_count + 1), repeat=3):
         if nS3 + nS4 + nS5 != machine_count:
             continue
 
@@ -241,41 +276,47 @@ def iter_opt_profiles(
         if mtf_profile is not None:
             if profile.total_job_count != mtf_profile.total_job_count:
                 continue
-            if acceleration_case is AccelerationCase.CASE_3:
-                if _case_3_opt_profile_matches(mtf_profile, profile):
-                    yield profile
+            if _case_3_1_opt_profile_matches(ell, mtf_profile, profile):
+                yield profile
+            continue
+
+        if ell in (1, 2):
+            if nS3 == 0:
+                yield profile
+        elif ell % 2 == 1:
+            if nS3 <= ell - 1:
+                yield profile
+        else:
+            if nS3 <= ell - 2:
+                yield profile
+
+
+def _iter_case_3_2_opt_profiles(
+    machine_count: int,
+    ell: int,
+    *,
+    mtf_profile: MtfProfile | None,
+) -> Iterator[OptProfile]:
+    for nS3, nS4, nS5 in product(range(machine_count + 1), repeat=3):
+        if nS3 + nS4 + nS5 != machine_count:
+            continue
+
+        profile = OptProfile(m3=nS3, m4=nS4, m5=nS5, pattern="generic")
+        if mtf_profile is not None:
+            if profile.total_job_count != mtf_profile.total_job_count:
                 continue
-            if acceleration_case is AccelerationCase.CASE_3_1:
-                if _case_3_1_opt_profile_matches(ell, mtf_profile, profile):
-                    yield profile
-            elif _case_3_2_opt_profile_matches(ell, mtf_profile, profile):
+            if _case_3_2_opt_profile_matches(ell, mtf_profile, profile):
                 yield profile
             continue
 
-        if acceleration_case is AccelerationCase.CASE_3:
-            if nS3 >= 0:
+        if nS4 < 1:
+            continue
+        if ell % 2 == 1:
+            if nS3 <= ell - 5:
                 yield profile
-            continue
-
-        if acceleration_case is AccelerationCase.CASE_3_1:
-            if ell in (1, 2):
-                if nS3 == 0:
-                    yield profile
-            elif ell % 2 == 1:
-                if nS3 <= ell - 1:
-                    yield profile
-            else:
-                if nS3 <= ell - 2:
-                    yield profile
-            continue
-
-        if nS4 >= 1:
-            if ell % 2 == 1:
-                if nS3 <= ell - 5:
-                    yield profile
-            else:
-                if nS3 <= ell - 4:
-                    yield profile
+        else:
+            if nS3 <= ell - 4:
+                yield profile
 
 
 def iter_mtf_profiles(
