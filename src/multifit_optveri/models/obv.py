@@ -229,11 +229,11 @@ def _validate_paper_acceleration_case(case: ExperimentCase) -> None:
         )
 
 
-def _use_case_2_exact_mtf(case: ExperimentCase) -> bool:
-    """Return whether Case 2 should use the reduced exact-MTF encoding."""
+def _use_exact_mtf(case: ExperimentCase) -> bool:
+    """Return whether this branch should use the reduced exact-MTF encoding."""
 
     return (
-        case.acceleration_case is AccelerationCase.CASE_2
+        case.acceleration_case in (AccelerationCase.CASE_2, AccelerationCase.CASE_3)
         and case.mtf_profile is not None
         and case.fallback_starts is not None
     )
@@ -284,10 +284,10 @@ def _apply_profile_cardinality_constraints(
 
     if case.mtf_profile is not None:
         layout = _build_mtf_profile_layout(case)
-        if case.acceleration_case is AccelerationCase.CASE_2:
+        if _use_exact_mtf(case):
             if case.fallback_starts is None:
-                raise ValueError("Case 2 exact MTF constraints require fallback_starts.")
-            _apply_case_2_exact_mtf_constraints(
+                raise ValueError("Exact MTF constraints require fallback_starts.")
+            _apply_exact_mtf_constraints(
                 model,
                 case,
                 p,
@@ -854,6 +854,28 @@ def _apply_case_profile_constraints(
         )
         return
 
+    if case.acceleration_case is AccelerationCase.CASE_3:
+        if s5_machines and prefix_end >= 1:
+            model.addConstrs(
+                (
+                    x[machine_index, job_index] == 0
+                    for machine_index in s5_machines
+                    for job_index in range(1, prefix_end + 1)
+                ),
+                name="case3_OPT_no5_constr",
+            )
+
+        s3_prefix_count = 2 * (profile.nF1 + profile.nR2) - 1
+        if s3_prefix_count > 0:
+            model.addConstrs(
+                (
+                    gp.quicksum(x[machine_index, job_index] for job_index in jobs) == 3
+                    for machine_index in machine_ids[:s3_prefix_count]
+                ),
+                name="case3_always_S3_constr",
+            )
+        return
+
     prefix_end = layout.e4 + 4 * profile.nR4 - 4
     # From here on we are in Case 3-1 or Case 3-2.
     # First add the structural facts shared by both subcases.
@@ -1114,7 +1136,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     truncated_jobs = range(1, case.job_count)
     target = _as_float(case.target_ratio)
     processing_time_lower_bound = _processing_time_lower_bound(case)
-    use_case_2_exact_mtf = _use_case_2_exact_mtf(case)
+    use_exact_mtf = _use_exact_mtf(case)
 
     # Variable creation: compare these domains with the paper's variable
     # definitions, keeping in mind that the bounds are solver-strengthening
@@ -1138,7 +1160,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
     q: TupleVarMap | None = None
     s: TupleVarMap | None = None
-    if not use_case_2_exact_mtf:
+    if not use_exact_mtf:
         q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
         s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
     z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
@@ -1160,7 +1182,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="opt_makespan",
     )
 
-    if not use_case_2_exact_mtf:
+    if not use_exact_mtf:
         assert q is not None and s is not None
         model.addConstrs(
             # Every job except n is assigned in the simulated MTF schedule.
@@ -1248,33 +1270,29 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     return BuiltObvModel(model=model, dimensions=dimensions)
 
 
-def _apply_case_2_fallback_start_assignments(
+def _apply_exact_mtf_assignments(
     model: GurobiModel,
     case: ExperimentCase,
     q: TupleVarMap,
     layout: MtfProfileLayout,
 ) -> dict[int, tuple[int, ...]]:
-    """Fix the full Case 2 MTF assignment once fallback starts are branched."""
+    """Fix the full exact MTF assignment once fallback starts are branched."""
 
-    assignment = _build_case_2_exact_assignment(case, layout)
+    assignment = _build_exact_mtf_assignment(case, layout)
     for machine_index, machine_jobs in assignment.items():
         for offset, job_index in enumerate(machine_jobs, start=1):
             model.addConstr(
                 q[machine_index, job_index] == 1,
-                name=f"case2_exact_q[{machine_index},{offset}]",
+                name=f"exact_q[{machine_index},{offset}]",
             )
     return assignment
 
 
-def _build_case_2_exact_assignment(
+def _build_exact_mtf_assignment(
     case: ExperimentCase,
     layout: MtfProfileLayout,
 ) -> dict[int, tuple[int, ...]]:
-    """Reconstruct the fully determined Case 2 MTF schedule from fallback starts.
-
-    Case 2 has no F1 machines, so the exact schedule begins directly with the
-    R2 block and then proceeds through F2, R3, F3, R4, F4, and R5.
-    """
+    """Reconstruct the fully determined exact MTF schedule from fallback starts."""
 
     profile = case.mtf_profile
     starts = case.fallback_starts
@@ -1282,25 +1300,31 @@ def _build_case_2_exact_assignment(
         return {}
 
     scheduled_job_count = profile.scheduled_job_count
-    fallback_jobs = set()
+    reserved_jobs = set()
 
     def fallback_block(start: int | None, count: int) -> list[int]:
         if start is None or count == 0:
             return []
         values = list(range(start, start + count))
-        fallback_jobs.update(values)
+        reserved_jobs.update(values)
         return values
 
     f2_fallback_jobs = fallback_block(starts.s2, profile.nF2)
     f3_fallback_jobs = fallback_block(starts.s3, profile.nF3)
     f4_fallback_jobs = fallback_block(starts.s4, profile.nF4)
-    regular_jobs = [job_index for job_index in range(1, scheduled_job_count + 1) if job_index not in fallback_jobs]
-
     assignment: dict[int, tuple[int, ...]] = {}
-    regular_cursor = 0
     f2_cursor = 0
     f3_cursor = 0
     f4_cursor = 0
+
+    if case.acceleration_case is AccelerationCase.CASE_3:
+        for machine_index in layout.f1_machines:
+            f1_jobs = (machine_index, profile.nF1 + machine_index + 1)
+            assignment[machine_index] = f1_jobs
+            reserved_jobs.update(f1_jobs)
+
+    regular_jobs = [job_index for job_index in range(1, scheduled_job_count + 1) if job_index not in reserved_jobs]
+    regular_cursor = 0
 
     def regular_block(regular_count: int) -> tuple[int, ...]:
         nonlocal regular_cursor
@@ -1335,7 +1359,7 @@ def _build_case_2_exact_assignment(
     return assignment
 
 
-def _apply_case_2_exact_mtf_constraints(
+def _apply_exact_mtf_constraints(
     model: GurobiModel,
     case: ExperimentCase,
     p: PVarMap,
@@ -1344,20 +1368,20 @@ def _apply_case_2_exact_mtf_constraints(
     target: float,
     layout: MtfProfileLayout,
 ) -> None:
-    """Add the exact Case 2 MTF constraints once fallback starts determine the schedule."""
+    """Add exact MTF constraints once fallback starts determine the schedule."""
 
     profile = case.mtf_profile
     if profile is None or case.fallback_starts is None:
         return
 
-    assignment = _build_case_2_exact_assignment(case, layout)
+    assignment = _build_exact_mtf_assignment(case, layout)
     fallback_machines = set(layout.f2_machines) | set(layout.f3_machines) | set(layout.f4_machines)
 
     # Every machine's load + p_n >= target.
     for machine_index, machine_jobs in assignment.items():
         model.addConstr(
             gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= target,
-            name=f"case2_exact_mtf_objective[{machine_index}]",
+            name=f"exact_mtf_objective[{machine_index}]",
         )
 
     # Fallback machines: regular prefix + next sequential job >= target
@@ -1368,7 +1392,7 @@ def _apply_case_2_exact_mtf_constraints(
         next_job = regular_jobs[-1] + 1
         model.addConstr(
             gp.quicksum(p[j] for j in regular_jobs) + p[next_job] >= target,
-            name=f"case2_exact_mtf_fallback[{machine_index}]",
+            name=f"exact_mtf_fallback[{machine_index}]",
         )
 
     def add_rk_equal_processing(
@@ -1463,6 +1487,16 @@ def _apply_case_2_exact_mtf_constraints(
                 ),
                 name=f"{name_prefix}_symmetry_break_by_proc[{left_job}]",
             )
+
+    if case.acceleration_case is AccelerationCase.CASE_3 and layout.f1_machines:
+        add_fallback_block_equal_processing(
+            tuple(assignment[machine_index][0] for machine_index in layout.f1_machines),
+            name_prefix="F1",
+        )
+        add_fallback_block_equal_processing(
+            tuple(assignment[machine_index][1] for machine_index in layout.f1_machines),
+            name_prefix="F1_fallback",
+        )
 
     if layout.r2_machines:
         add_rk_equal_processing(layout.r2_machines, k=2, name_prefix="R2")

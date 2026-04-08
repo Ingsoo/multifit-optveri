@@ -197,6 +197,7 @@ def enumerate_cases(
             for mtf_profile in iter_mtf_profiles(
                 machine_count,
                 current_acceleration_case,
+                min_job_count=bounds.lower,
                 max_job_count=bounds.upper,
             ):
                 fallback_start_options: tuple[FallbackStarts | None, ...] | Iterator[FallbackStarts]

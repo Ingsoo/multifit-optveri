@@ -189,14 +189,14 @@ class ObvBuildTests(unittest.TestCase):
 
         try:
             model: GurobiModel = built.model
-            self.assertIsNotNone(model.getConstrByName("case2_exact_mtf_objective[1]"))
-            self.assertIsNotNone(model.getConstrByName("case2_exact_mtf_fallback[1]"))
+            self.assertIsNotNone(model.getConstrByName("exact_mtf_objective[1]"))
+            self.assertIsNotNone(model.getConstrByName("exact_mtf_fallback[1]"))
             self.assertEqual(
-                _linear_row_var_names(model, "case2_exact_mtf_objective[1]"),
+                _linear_row_var_names(model, "exact_mtf_objective[1]"),
                 ["p[1]", "p[2]", "p[6]", "p[30]"],
             )
             self.assertEqual(
-                _linear_row_var_names(model, "case2_exact_mtf_fallback[1]"),
+                _linear_row_var_names(model, "exact_mtf_fallback[1]"),
                 ["p[1]", "p[2]", "p[3]"],
             )
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[3]"))
@@ -213,6 +213,31 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNone(model.getConstrByName("mtf_cardinality_ub[1]"))
             self.assertIsNone(model.getConstrByName("mtf_init_fixed[1]"))
             self.assertIsNone(model.getConstrByName("mtf_profile_cardinality[1]"))
+        finally:
+            built.model.dispose()
+
+    def test_case_3_exact_assignment_uses_reduced_exact_mtf_encoding(self) -> None:
+        case = _case(
+            acceleration_case=AccelerationCase.CASE_3,
+            machine_count=8,
+            job_count=25,
+            ell=3,
+            mtf_profile=MtfProfile(3, 1, 0, 0, 0, 4, 0, 0),
+            opt_profile=OptProfile(7, 1, 0, pattern="generic"),
+            fallback_starts=FallbackStarts(None, None, None),
+        )
+        built = build_obv_model(case)
+
+        try:
+            model: GurobiModel = built.model
+            self.assertIsNone(model.getVarByName("q[1,1]"))
+            self.assertIsNone(model.getVarByName("s[1,1]"))
+            self.assertIsNotNone(model.getConstrByName("exact_mtf_objective[1]"))
+            self.assertIsNotNone(model.getConstrByName("F1_fallback_processing_times[5]"))
+            self.assertEqual(
+                _linear_row_var_names(model, "exact_mtf_objective[1]"),
+                ["p[1]", "p[5]", "p[25]"],
+            )
         finally:
             built.model.dispose()
 
@@ -239,7 +264,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("F2_fallback_processing_times[11]"))
             self.assertIsNone(model.getConstrByName("F2_fallback_processing_times[12]"))
             self.assertEqual(
-                _linear_row_var_names(model, "case2_exact_mtf_fallback[3]"),
+                _linear_row_var_names(model, "exact_mtf_fallback[3]"),
                 ["p[5]", "p[6]", "p[7]"],
             )
         finally:

@@ -241,10 +241,19 @@ def iter_opt_profiles(
         if mtf_profile is not None:
             if profile.total_job_count != mtf_profile.total_job_count:
                 continue
+            if acceleration_case is AccelerationCase.CASE_3:
+                if _case_3_opt_profile_matches(mtf_profile, profile):
+                    yield profile
+                continue
             if acceleration_case is AccelerationCase.CASE_3_1:
                 if _case_3_1_opt_profile_matches(ell, mtf_profile, profile):
                     yield profile
             elif _case_3_2_opt_profile_matches(ell, mtf_profile, profile):
+                yield profile
+            continue
+
+        if acceleration_case is AccelerationCase.CASE_3:
+            if nS3 >= 0:
                 yield profile
             continue
 
@@ -273,6 +282,7 @@ def iter_mtf_profiles(
     machine_count: int,
     acceleration_case: AccelerationCase,
     *,
+    min_job_count: int | None = None,
     max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
     # MTF profile generation is independent of ell; candidate ell values are
@@ -280,6 +290,7 @@ def iter_mtf_profiles(
     yield from _iter_all_mtf_profiles(
         machine_count,
         acceleration_case,
+        min_job_count=min_job_count,
         max_job_count=max_job_count,
     )
 
@@ -428,7 +439,11 @@ def fallback_start_structural_mins(
             )
         return FallbackStarts(s2=s2_min, s3=s3_min, s4=s4_min)
 
-    if acceleration_case is AccelerationCase.CASE_3:
+    if acceleration_case in (
+        AccelerationCase.CASE_3,
+        AccelerationCase.CASE_3_1,
+        AccelerationCase.CASE_3_2,
+    ):
         prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
         s2_min = None
         s3_min = None
@@ -457,6 +472,7 @@ def _iter_all_mtf_profiles(
     machine_count: int,
     acceleration_case: AccelerationCase,
     *,
+    min_job_count: int | None = None,
     max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
     # Generate coarse MTF profiles independent of ell; the possible ell values
@@ -466,6 +482,8 @@ def _iter_all_mtf_profiles(
         for pair_total in range(pair_upper + 1):
             tail_total = machine_count - pair_total
             target_job_count = 4 * machine_count - 2 * pair_total
+            if min_job_count is not None and target_job_count < min_job_count:
+                continue
             if max_job_count is not None and target_job_count > max_job_count:
                 continue
             for nR2 in range(pair_total + 1):
@@ -522,7 +540,33 @@ def _iter_all_mtf_profiles(
                             if 7 * nF3 + 10 * nF4 >= 2 * m - 11:
                                 continue
                             profile = MtfProfile(0, nR2, nF2, nR3, nF3, nR4, nF4, nR5)
-                            if max_job_count is None or profile.total_job_count <= max_job_count:
+                            if min_job_count is not None and profile.total_job_count < min_job_count:
+                                continue
+                            if max_job_count is not None and profile.total_job_count > max_job_count:
+                                continue
+                            yield profile
+        return
+
+    if acceleration_case is AccelerationCase.CASE_3:
+        m = machine_count
+        max_nF3 = max(0, (m - 8) // 4)
+        for a in range(m + 1):
+            for nF1 in range(a + 1):
+                nR2 = a - nF1
+                remaining_after_prefix = m - a
+                for nF2 in range(remaining_after_prefix + 1):
+                    remaining_after_f2 = remaining_after_prefix - nF2
+                    for nR3 in range(remaining_after_f2 + 1):
+                        remaining_after_r3 = remaining_after_f2 - nR3
+                        for nF3 in range(min(max_nF3, remaining_after_r3) + 1):
+                            remaining_tail = remaining_after_r3 - nF3
+                            for nR5 in range(remaining_tail + 1):
+                                nR4 = remaining_tail - nR5
+                                profile = MtfProfile(nF1, nR2, nF2, nR3, nF3, nR4, 0, nR5)
+                                if min_job_count is not None and profile.total_job_count < min_job_count:
+                                    continue
+                                if max_job_count is not None and profile.total_job_count > max_job_count:
+                                    continue
                                 yield profile
         return
 
@@ -530,6 +574,7 @@ def _iter_all_mtf_profiles(
         yield from _iter_all_case_3_profiles(
             machine_count,
             allow_case_32=False,
+            min_job_count=min_job_count,
             max_job_count=max_job_count,
         )
         return
@@ -537,6 +582,7 @@ def _iter_all_mtf_profiles(
     yield from _iter_all_case_3_profiles(
         machine_count,
         allow_case_32=True,
+        min_job_count=min_job_count,
         max_job_count=max_job_count,
     )
 
@@ -545,6 +591,7 @@ def _iter_all_case_3_profiles(
     machine_count: int,
     *,
     allow_case_32: bool,
+    min_job_count: int | None = None,
     max_job_count: int | None = None,
 ) -> Iterator[MtfProfile]:
     # Case 3 is split into 3-1 / 3-2 by whether ell is a fallback job in F2.
@@ -568,6 +615,8 @@ def _iter_all_case_3_profiles(
                         for nR5 in range(machine_count - a - b - nF3 + 1):
                             nR4 = machine_count - a - b - nF3 - nR5
                             profile = MtfProfile(nF1, nR2, nF2, nR3, nF3, nR4, 0, nR5)
+                            if min_job_count is not None and profile.total_job_count < min_job_count:
+                                continue
                             if max_job_count is not None and profile.total_job_count > max_job_count:
                                 continue
                             yield profile
@@ -589,6 +638,14 @@ def _case_3_1_opt_profile_matches(
     if ell % 2 == 1:
         return nS3 <= ell - 1
     return nS3 <= ell - 2
+
+
+def _case_3_opt_profile_matches(
+    mtf_profile: MtfProfile,
+    opt_profile: OptProfile,
+) -> bool:
+    a = mtf_profile.nF1 + mtf_profile.nR2
+    return opt_profile.nS3 >= 2 * a - 1
 
 
 def _case_3_2_opt_profile_matches(

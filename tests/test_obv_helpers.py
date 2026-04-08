@@ -15,7 +15,7 @@ from multifit_optveri.models.obv import (
     _as_float,
     _build_mtf_profile_layout,
     _build_opt_machine_groups,
-    _build_case_2_exact_assignment,
+    _build_exact_mtf_assignment,
     _common_processing_time_lower_bound,
     _machine_after_pair_block,
     _mtf_cardinality_upper_bound,
@@ -118,7 +118,7 @@ class ObvHelperTests(unittest.TestCase):
         )
 
         layout = _build_mtf_profile_layout(case)
-        assignment = _build_case_2_exact_assignment(case, layout)
+        assignment = _build_exact_mtf_assignment(case, layout)
 
         self.assertEqual(
             assignment,
@@ -131,6 +131,34 @@ class ObvHelperTests(unittest.TestCase):
                 6: (16, 17, 18, 19),
                 7: (20, 21, 22, 23, 24),
                 8: (25, 26, 27, 28, 29),
+            },
+        )
+
+    def test_case_3_exact_assignment_reconstruction(self) -> None:
+        case = _sample_case(
+            acceleration_case=AccelerationCase.CASE_3,
+            machine_count=8,
+            job_count=25,
+            ell=3,
+            mtf_profile=MtfProfile(3, 1, 0, 0, 0, 4, 0, 0),
+            opt_profile=OptProfile(7, 1, 0, pattern="generic"),
+            fallback_starts=FallbackStarts(None, None, None),
+        )
+
+        layout = _build_mtf_profile_layout(case)
+        assignment = _build_exact_mtf_assignment(case, layout)
+
+        self.assertEqual(
+            assignment,
+            {
+                1: (1, 5),
+                2: (2, 6),
+                3: (3, 7),
+                4: (4, 8),
+                5: (9, 10, 11, 12),
+                6: (13, 14, 15, 16),
+                7: (17, 18, 19, 20),
+                8: (21, 22, 23, 24),
             },
         )
 

@@ -92,6 +92,15 @@ class BranchingTests(unittest.TestCase):
             [OptProfile(8, 0, 0, pattern="regular")],
         )
 
+    def test_case_3_opt_profiles_only_enforce_ns3_prefix_lower_bound(self) -> None:
+        mtf_profile = MtfProfile(1, 0, 0, 0, 0, 6, 0, 1)
+
+        profiles = list(iter_opt_profiles(8, 3, AccelerationCase.CASE_3, mtf_profile=mtf_profile))
+
+        self.assertIn(OptProfile(1, 6, 1, pattern="generic"), profiles)
+        self.assertNotIn(OptProfile(0, 8, 0, pattern="generic"), profiles)
+        self.assertTrue(all(profile.nS3 >= 1 for profile in profiles))
+
     def test_candidate_ells_for_mtf_profile_match_case_logic(self) -> None:
         self.assertEqual(
             candidate_ells_for_mtf_profile(
@@ -225,6 +234,19 @@ class BranchingTests(unittest.TestCase):
         profiles = list(iter_mtf_profiles(12, AccelerationCase.CASE_2, max_job_count=200))
 
         self.assertTrue(any(profile.nF4 > 0 for profile in profiles))
+
+    def test_case_3_profiles_only_enforce_f3_bound_and_no_f4(self) -> None:
+        profiles = list(iter_mtf_profiles(8, AccelerationCase.CASE_3, max_job_count=200))
+
+        self.assertTrue(profiles)
+        self.assertTrue(all(profile.nF4 == 0 for profile in profiles))
+        self.assertTrue(all(4 * profile.nF3 < 8 - 7 for profile in profiles))
+
+    def test_iter_mtf_profiles_respects_min_job_count(self) -> None:
+        profiles = list(iter_mtf_profiles(8, AccelerationCase.CASE_3, min_job_count=31, max_job_count=200))
+
+        self.assertTrue(profiles)
+        self.assertTrue(all(profile.total_job_count >= 31 for profile in profiles))
 
     def test_case_2_new_generation_matches_legacy_generation_when_pair_total_positive(self) -> None:
         for machine_count in range(8, 13):

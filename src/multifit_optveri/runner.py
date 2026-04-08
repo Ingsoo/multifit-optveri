@@ -19,7 +19,7 @@ from multifit_optveri.math_utils import (
 )
 from multifit_optveri.models.obv import (
     BuiltObvModel,
-    _build_case_2_exact_assignment,
+    _build_exact_mtf_assignment,
     _build_mtf_profile_layout,
     build_obv_model,
 )
@@ -250,13 +250,13 @@ def _format_opt_profile(case: ExperimentCase) -> str | None:
 def _format_mtf_assignment(case: ExperimentCase) -> dict[str, list[int]] | None:
     if case.mtf_profile is None:
         return None
-    if case.acceleration_case is not AccelerationCase.CASE_2:
+    if case.acceleration_case not in (AccelerationCase.CASE_2, AccelerationCase.CASE_3):
         return None
     if case.fallback_starts is None:
         return None
 
     layout = _build_mtf_profile_layout(case)
-    assignment = _build_case_2_exact_assignment(case, layout)
+    assignment = _build_exact_mtf_assignment(case, layout)
     return {
         f"M{machine_index}": list(job_indices)
         for machine_index, job_indices in sorted(assignment.items())
