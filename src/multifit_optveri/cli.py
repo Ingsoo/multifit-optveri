@@ -8,6 +8,8 @@ from multifit_optveri.config import load_experiment_config
 from multifit_optveri.experiments import enumerate_cases, render_case_plan
 from multifit_optveri.runner import RunRecorder, create_run_artifacts, prepare_cases_for_run, run_case
 
+CASE_PROGRESS_LOG_INTERVAL = 1000
+
 
 def _add_case_filter_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--machine", type=int, help="Restrict to a single machine count.")
@@ -102,20 +104,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Run directory: {artifacts.run_dir}", flush=True)
     print(f"Summary CSV: {artifacts.summary_csv_path}", flush=True)
     for index, case in enumerate(prepared_cases, start=1):
-        print(
-            f"[{index}/{len(prepared_cases)}] Starting {case.case_id} "
-            f"(m={case.machine_count}, n={case.job_count}, "
-            f"acceleration={case.acceleration_case.value}, ell={case.ell})",
-            flush=True,
-        )
         result = run_case(case)
         recorder.record(result)
-        print(
-            f"{result.case_id}: acceleration={result.acceleration_case}, "
-            f"status={result.status}, objective={result.objective_value}, "
-            f"time={result.runtime_seconds}",
-            flush=True,
-        )
+        if index % CASE_PROGRESS_LOG_INTERVAL == 0 or index == len(prepared_cases):
+            print(
+                f"Completed {index}/{len(prepared_cases)} case(s). "
+                f"Last status={result.status}",
+                flush=True,
+            )
     recorder.finish()
     print(f"Finished. Overview: {artifacts.overview_json_path}", flush=True)
     return 0

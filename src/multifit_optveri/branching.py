@@ -310,6 +310,13 @@ def candidate_ells_for_mtf_profile(
             return ()
         return tuple(ell for ell in (2 * prefix_total + 1, 2 * prefix_total + 2) if ell != 2)
 
+    if acceleration_case is AccelerationCase.CASE_3:
+        return (
+            2 * prefix_total + 1,
+            2 * prefix_total + 2,
+            2 * prefix_total + 3,
+        )
+
     if acceleration_case is AccelerationCase.CASE_3_1:
         return (
             2 * prefix_total + 1,
@@ -338,55 +345,58 @@ def iter_fallback_starts(
         yield FallbackStarts()
         return
 
-    if acceleration_case is not AccelerationCase.CASE_2:
-        yield FallbackStarts()
-        return
+    if acceleration_case in (
+        AccelerationCase.CASE_2,
+        AccelerationCase.CASE_3,
+        AccelerationCase.CASE_3_1,
+        AccelerationCase.CASE_3_2,
+    ):
+        scheduled_job_count = mtf_profile.scheduled_job_count
+        structural_mins = fallback_start_structural_mins(machine_count, mtf_profile, acceleration_case)
+        s2_structural_min = structural_mins.s2
+        s3_structural_min = structural_mins.s3
+        s4_structural_min = structural_mins.s4
 
-    scheduled_job_count = mtf_profile.scheduled_job_count
-    structural_mins = fallback_start_structural_mins(machine_count, mtf_profile, acceleration_case)
-    s2_structural_min = structural_mins.s2
-    s3_structural_min = structural_mins.s3
-    s4_structural_min = structural_mins.s4
-
-    s2_values: tuple[int | None, ...]
-    if mtf_profile.nF2 == 0:
-        s2_values = (None,)
-    else:
-        assert s2_structural_min is not None
-        s2_min = s2_structural_min
-        s2_max = scheduled_job_count - (mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4) + 1
-        s2_values = tuple(range(s2_min, s2_max + 1))
-
-    for s2 in s2_values:
-        if mtf_profile.nF3 == 0:
-            s3_values = (None,)
+        s2_values: tuple[int | None, ...]
+        if mtf_profile.nF2 == 0:
+            s2_values = (None,)
         else:
-            assert s3_structural_min is not None
-            s3_min = max(
-                (0 if s2 is None else s2 + mtf_profile.nF2),
-                s3_structural_min,
-            )
-            s3_max = scheduled_job_count - (mtf_profile.nF3 + mtf_profile.nF4) + 1
-            s3_values = tuple(range(s3_min, s3_max + 1))
+            assert s2_structural_min is not None
+            s2_min = s2_structural_min
+            s2_max = scheduled_job_count - (mtf_profile.nF2 + mtf_profile.nF3 + mtf_profile.nF4) + 1
+            s2_values = tuple(range(s2_min, s2_max + 1))
 
-        for s3 in s3_values:
-            if mtf_profile.nF4 == 0:
-                yield FallbackStarts(s2=s2, s3=s3, s4=None)
-                continue
+        for s2 in s2_values:
+            if mtf_profile.nF3 == 0:
+                s3_values = (None,)
+            else:
+                assert s3_structural_min is not None
+                s3_min = max(
+                    (0 if s2 is None else s2 + mtf_profile.nF2),
+                    s3_structural_min,
+                )
+                s3_max = scheduled_job_count - (mtf_profile.nF3 + mtf_profile.nF4) + 1
+                s3_values = tuple(range(s3_min, s3_max + 1))
 
-            previous_fallback_end = 0
-            if s3 is not None:
-                previous_fallback_end = s3 + mtf_profile.nF3
-            elif s2 is not None:
-                previous_fallback_end = s2 + mtf_profile.nF2
-            assert s4_structural_min is not None
-            s4_min = max(
-                previous_fallback_end,
-                s4_structural_min,
-            )
-            s4_max = scheduled_job_count - mtf_profile.nF4 + 1
-            for s4 in range(s4_min, s4_max + 1):
-                yield FallbackStarts(s2=s2, s3=s3, s4=s4)
+            for s3 in s3_values:
+                if mtf_profile.nF4 == 0:
+                    yield FallbackStarts(s2=s2, s3=s3, s4=None)
+                    continue
+
+                previous_fallback_end = 0
+                if s3 is not None:
+                    previous_fallback_end = s3 + mtf_profile.nF3
+                elif s2 is not None:
+                    previous_fallback_end = s2 + mtf_profile.nF2
+                assert s4_structural_min is not None
+                s4_min = max(
+                    previous_fallback_end,
+                    s4_structural_min,
+                )
+                s4_max = scheduled_job_count - mtf_profile.nF4 + 1
+                for s4 in range(s4_min, s4_max + 1):
+                    yield FallbackStarts(s2=s2, s3=s3, s4=s4)
+        return
 
 
 def fallback_start_structural_mins(
@@ -396,30 +406,51 @@ def fallback_start_structural_mins(
 ) -> FallbackStarts:
     """Return the current structural lower bounds for fallback block starts."""
 
-    if acceleration_case is not AccelerationCase.CASE_2:
-        return FallbackStarts()
+    if acceleration_case is AccelerationCase.CASE_2:
+        prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
+        s2_min = None
+        s3_min = None
+        s4_min = None
 
-    prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
-    s2_min = None
-    s3_min = None
-    s4_min = None
+        if mtf_profile.nF2 > 0:
+            s2_min = 2 * prefix_total + 4
+        if mtf_profile.nF3 > 0:
+            s3_min = 2 * prefix_total + mtf_profile.nF2 + 3 * mtf_profile.nR3 + 3 * mtf_profile.nF3 + 2
+        if mtf_profile.nF4 > 0:
+            s4_min = (
+                2 * prefix_total
+                + mtf_profile.nF2
+                + 3 * mtf_profile.nR3
+                + 4 * mtf_profile.nF3
+                + 4 * mtf_profile.nR4
+                + 4 * mtf_profile.nF4
+                + 2
+            )
+        return FallbackStarts(s2=s2_min, s3=s3_min, s4=s4_min)
 
-    if mtf_profile.nF2 > 0:
-        s2_min = 2 * prefix_total + 4
-    if mtf_profile.nF3 > 0:
-        s3_min = 2 * prefix_total + mtf_profile.nF2 + 3 * mtf_profile.nR3 + 3 * mtf_profile.nF3 + 2
-    if mtf_profile.nF4 > 0:
-        s4_min = (
-            2 * prefix_total
-            + mtf_profile.nF2
-            + 3 * mtf_profile.nR3
-            + 4 * mtf_profile.nF3
-            + 4 * mtf_profile.nR4
-            + 4 * mtf_profile.nF4
-            + 2
-        )
+    if acceleration_case is AccelerationCase.CASE_3:
+        prefix_total = mtf_profile.nF1 + mtf_profile.nR2 + mtf_profile.nF2
+        s2_min = None
+        s3_min = None
+        s4_min = None
 
-    return FallbackStarts(s2=s2_min, s3=s3_min, s4=s4_min)
+        if mtf_profile.nF2 > 0:
+            s2_min = 2 * prefix_total + 2
+        if mtf_profile.nF3 > 0:
+            s3_min = 2 * prefix_total + mtf_profile.nF2 + 3 * mtf_profile.nR3 + 3 * mtf_profile.nF3 + 2
+        if mtf_profile.nF4 > 0:
+            s4_min = (
+                2 * prefix_total
+                + mtf_profile.nF2
+                + 3 * mtf_profile.nR3
+                + 4 * mtf_profile.nF3
+                + 4 * mtf_profile.nR4
+                + 4 * mtf_profile.nF4
+                + 2
+            )
+        return FallbackStarts(s2=s2_min, s3=s3_min, s4=s4_min)
+
+    return FallbackStarts()
 
 
 def _iter_all_mtf_profiles(

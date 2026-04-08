@@ -14,5 +14,5 @@ mip_gap = 0.0
 threads = 0
 presolve = 1
 non_convex = 2
-output_flag = 1
+output_flag = 0
 legacy_best_bd_stop_at_target = true

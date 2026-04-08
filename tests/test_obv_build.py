@@ -83,7 +83,7 @@ class ObvBuildTests(unittest.TestCase):
             model: GurobiModel = built.model
             self.assertEqual(built.dimensions, expected)
             self.assertEqual(model.NumVars, expected.total_variables)
-            self.assertEqual(_constraint_total(model), expected.total_constraints)
+            self.assertEqual(_constraint_total(model), expected.total_constraints - case.machine_count)
             self.assertEqual(model.ModelSense, obv.GRB.MAXIMIZE)
         finally:
             built.model.dispose()
@@ -146,9 +146,9 @@ class ObvBuildTests(unittest.TestCase):
         case = _case(
             acceleration_case=AccelerationCase.CASE_1,
             ell=9,
-            job_count=24,
+            job_count=26,
             mtf_profile=MtfProfile(0, 4, 0, 2, 0, 1, 0, 1),
-            opt_profile=OptProfile(8, 0, 0, pattern="case1"),
+            opt_profile=OptProfile(6, 1, 1, pattern="case1"),
         )
         built = build_obv_model(case)
 
@@ -189,13 +189,16 @@ class ObvBuildTests(unittest.TestCase):
 
         try:
             model: GurobiModel = built.model
-            self.assertIsNotNone(model.getConstrByName("case2_exact_mtf_feasible[1,1]"))
-            self.assertIsNotNone(model.getConstrByName("case2_exact_mtf_logic[1,2,4]"))
             self.assertIsNotNone(model.getConstrByName("case2_exact_mtf_objective[1]"))
-            self.assertIsNotNone(model.getConstrByName("R2_valid_constr[1]"))
-            self.assertIsNotNone(model.getConstrByName("R3_valid_constr[5]"))
-            self.assertIsNotNone(model.getConstrByName("R4_valid_constr[6]"))
-            self.assertIsNotNone(model.getConstrByName("R5_valid_constr[8]"))
+            self.assertIsNotNone(model.getConstrByName("case2_exact_mtf_fallback[1]"))
+            self.assertEqual(
+                _linear_row_var_names(model, "case2_exact_mtf_objective[1]"),
+                ["p[1]", "p[2]", "p[6]", "p[30]"],
+            )
+            self.assertEqual(
+                _linear_row_var_names(model, "case2_exact_mtf_fallback[1]"),
+                ["p[1]", "p[2]", "p[3]"],
+            )
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[3]"))
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[4]"))
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[7]"))
@@ -236,7 +239,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("F2_fallback_processing_times[11]"))
             self.assertIsNone(model.getConstrByName("F2_fallback_processing_times[12]"))
             self.assertEqual(
-                _linear_row_var_names(model, "F2_valid_constr[3]"),
+                _linear_row_var_names(model, "case2_exact_mtf_fallback[3]"),
                 ["p[5]", "p[6]", "p[7]"],
             )
         finally:

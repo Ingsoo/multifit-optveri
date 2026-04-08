@@ -52,6 +52,7 @@ class AccelerationCase(str, Enum):
     CASE_2 = "case_2"
     CASE_3_1 = "case_3_1"
     CASE_3_2 = "case_3_2"
+    CASE_3 = "case_3"
 
     @property
     def pn_range(self) -> PnRange:
@@ -83,9 +84,7 @@ def parse_acceleration_case(value: str | AccelerationCase) -> AccelerationCase:
         return AccelerationCase(normalized)
     except ValueError as exc:
         supported = ", ".join(case.value for case in AccelerationCase)
-        raise ValueError(
-            f"Unsupported acceleration case '{value}'. Expected one of: {supported}."
-        ) from exc
+        raise ValueError(f"Unsupported acceleration case '{value}'. Expected one of: {supported}.") from exc
 
 
 def paper_common_pn_lower_bound(machine_count: int) -> Fraction:
