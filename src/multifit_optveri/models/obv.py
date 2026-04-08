@@ -285,6 +285,7 @@ def _apply_profile_cardinality_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
+    s: TupleVarMap,
     z_var: GurobiVar,
     q: TupleVarMap,
     jobs: range,
@@ -307,7 +308,7 @@ def _apply_profile_cardinality_constraints(
                     p[job_index] >= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
                     name=f"processing_time_in_D[{job_index}]",
                 )
-            elif job_index >= 2 * prefix_total + 4:
+            elif job_index >= 2 * prefix_total + 3:
                 model.addConstr(
                     p[job_index] <= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
                     name=f"processing_time_in_D_prime[{job_index}]",
@@ -340,8 +341,6 @@ def _apply_profile_cardinality_constraints(
     if case.mtf_profile is not None:
         layout = _build_mtf_profile_layout(case)
         if _use_exact_mtf(case):
-            if q is None:
-                raise ValueError("Exact MTF assignments require q variables.")
             _apply_exact_mtf_assignments(model, case, q, layout)
             if case.fallback_starts is None:
                 raise ValueError("Exact MTF constraints require fallback_starts.")
@@ -350,9 +349,8 @@ def _apply_profile_cardinality_constraints(
                 case,
                 p,
                 x,
-                z_var,
+                s,
                 machines,
-                target,
                 layout,
             )
         if q is None:
@@ -689,16 +687,16 @@ def _apply_global_valid_inequalities(
                 name="opt_smallest_jobs_sum",
             )
 
-    model.addConstrs(
-        (
-            q[machine_index, job_index] == 0
-            for machine_index in machines
-            for job_index in machines
-            if machine_index > job_index
-        ),
-        name="mtf_init_order",
-    )
     if case.mtf_profile is None:
+        model.addConstrs(
+            (
+                q[machine_index, job_index] == 0
+                for machine_index in machines
+                for job_index in machines
+                if machine_index > job_index
+            ),
+            name="mtf_init_order",
+        )
         model.addConstrs(
             (
                 2 <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
@@ -713,14 +711,14 @@ def _apply_global_valid_inequalities(
             ),
             name="mtf_cardinality_ub",
         )
-    model.addConstrs(
-        (
-            gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
-            == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
-            for job_index in range(2, case.job_count)
-        ),
-        name="mtf_balance",
-    )
+        model.addConstrs(
+            (
+                gp.quicksum(s[machine_index, job_index - 1] for machine_index in machines) + p[job_index]
+                == gp.quicksum(s[machine_index, job_index] for machine_index in machines)
+                for job_index in range(2, case.job_count)
+            ),
+            name="mtf_balance",
+        )
 
     if case.solver.legacy_best_bd_stop_at_target and case.enforce_target_lower_bound:
         # Legacy option carried over from the old implementation.
@@ -1198,7 +1196,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     truncated_jobs = range(1, case.job_count)
     target = _as_float(case.target_ratio)
     processing_time_lower_bound = _processing_time_lower_bound(case)
-    use_exact_mtf = _use_exact_mtf(case)
+    # use_exact_mtf = _use_exact_mtf(case)
 
     # CHECKED(2026-04-08): defining variables, UB/LB of proc.
     # Variable creation: compare these domains with the paper's variable
@@ -1282,6 +1280,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="mtf_objective",
     )
 
+    # CHECKED(2026-04-08): if there is no profile, OPT LB/UB, MTF LB/UB, and logic constraints.
     # Global strengthenings used in all runs. Audit separately from the pure
     # base MIQP if you want to know what is paper-essential vs solver-helpful.
     _apply_global_valid_inequalities(
@@ -1297,11 +1296,13 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         target,
     )
 
+    # CHECKED(2026-04-08): LB of z_var (optionally enforced).
     if case.enforce_target_lower_bound:
         # In verification mode we only care about candidate counterexamples with
         # objective value at least the claimed target ratio.
         model.addConstr(z_var >= target, name="target_lb")
 
+    # CHECKED(2026-04-08): validate the correctness of case.
     # Section 5 common case split conditions.
     if case.acceleration_case is not AccelerationCase.BASE:
         _validate_paper_acceleration_case(case)
@@ -1314,6 +1315,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             case,
             p,
             x,
+            s,
             z_var,
             q,
             jobs,
@@ -1339,9 +1341,7 @@ def _apply_exact_mtf_assignments(
 
     assignment = _build_exact_mtf_assignment(case, layout)
     assigned_machine_by_job = {
-        job_index: machine_index
-        for machine_index, machine_jobs in assignment.items()
-        for job_index in machine_jobs
+        job_index: machine_index for machine_index, machine_jobs in assignment.items() for job_index in machine_jobs
     }
     if len(assigned_machine_by_job) != case.job_count - 1:
         raise ValueError("Exact MTF assignment must cover each truncated job exactly once.")
@@ -1430,9 +1430,8 @@ def _apply_exact_mtf_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
-    z_var: GurobiVar,
+    s: TupleVarMap,
     machines: range,
-    target: float,
     layout: MtfProfileLayout,
 ) -> None:
     """Add exact MTF constraints once fallback starts determine the schedule."""
@@ -1442,25 +1441,13 @@ def _apply_exact_mtf_constraints(
         return
 
     assignment = _build_exact_mtf_assignment(case, layout)
-    fallback_machines = set(layout.f2_machines) | set(layout.f3_machines) | set(layout.f4_machines)
-
-    # Every machine's load + p_n upper-bounds the objective z_var.
     for machine_index, machine_jobs in assignment.items():
-        model.addConstr(
-            gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= z_var,
-            name=f"exact_mtf_objective[{machine_index}]",
-        )
-
-    # Fallback machines: regular prefix + next sequential job >= target
-    # (explains why the next job didn't fit and a fallback was placed instead).
-    for machine_index in fallback_machines:
-        machine_jobs = assignment[machine_index]
-        regular_jobs = machine_jobs[:-1]
-        next_job = regular_jobs[-1] + 1
-        model.addConstr(
-            gp.quicksum(p[j] for j in regular_jobs) + p[next_job] >= target,
-            name=f"exact_mtf_fallback[{machine_index}]",
-        )
+        for job_index in range(1, case.job_count):
+            assigned_prefix_jobs = tuple(job for job in machine_jobs if job <= job_index)
+            model.addConstr(
+                s[machine_index, job_index] == gp.quicksum(p[j] for j in assigned_prefix_jobs),
+                name=f"exact_s[{machine_index},{job_index}]",
+            )
 
     def add_rk_equal_processing(
         machine_block: tuple[int, ...],
@@ -1555,7 +1542,7 @@ def _apply_exact_mtf_constraints(
                 name=f"{name_prefix}_symmetry_break_by_proc[{left_job}]",
             )
 
-    if case.acceleration_case is AccelerationCase.CASE_3 and layout.f1_machines:
+    if layout.f1_machines:
         add_fallback_block_equal_processing(
             tuple(assignment[machine_index][0] for machine_index in layout.f1_machines),
             name_prefix="F1",
