@@ -419,6 +419,13 @@ def iter_fallback_starts(
             s2_values = tuple(range(s2_min, s2_max + 1))
 
         for s2 in s2_values:
+            if not _fallback_start_preserves_regular_suffixes(
+                mtf_profile,
+                FallbackStarts(s2=s2),
+                min_regular_block=3,
+                max_regular_block=5,
+            ):
+                continue
             if mtf_profile.nF3 == 0:
                 s3_values = (None,)
             else:
@@ -431,8 +438,23 @@ def iter_fallback_starts(
                 s3_values = tuple(range(s3_min, s3_max + 1))
 
             for s3 in s3_values:
+                starts = FallbackStarts(s2=s2, s3=s3)
+                if not _fallback_start_preserves_regular_suffixes(
+                    mtf_profile,
+                    starts,
+                    min_regular_block=4,
+                    max_regular_block=4,
+                ):
+                    continue
                 if mtf_profile.nF4 == 0:
-                    yield FallbackStarts(s2=s2, s3=s3, s4=None)
+                    starts = FallbackStarts(s2=s2, s3=s3, s4=None)
+                    if _fallback_start_preserves_regular_suffixes(
+                        mtf_profile,
+                        starts,
+                        min_regular_block=5,
+                        max_regular_block=5,
+                    ):
+                        yield starts
                     continue
 
                 previous_fallback_end = 0
@@ -447,7 +469,14 @@ def iter_fallback_starts(
                 )
                 s4_max = scheduled_job_count - mtf_profile.nF4 + 1
                 for s4 in range(s4_min, s4_max + 1):
-                    yield FallbackStarts(s2=s2, s3=s3, s4=s4)
+                    starts = FallbackStarts(s2=s2, s3=s3, s4=s4)
+                    if _fallback_start_preserves_regular_suffixes(
+                        mtf_profile,
+                        starts,
+                        min_regular_block=5,
+                        max_regular_block=5,
+                    ):
+                        yield starts
         return
 
 
@@ -661,6 +690,83 @@ def _iter_all_case_3_profiles(
                             if max_job_count is not None and profile.total_job_count > max_job_count:
                                 continue
                             yield profile
+
+
+def _fallback_start_preserves_regular_suffixes(
+    mtf_profile: MtfProfile,
+    starts: FallbackStarts,
+    *,
+    min_regular_block: int,
+    max_regular_block: int,
+) -> bool:
+    regular_blocks = _regular_block_assignments_by_size(mtf_profile, starts)
+    for block_size in range(min_regular_block, max_regular_block + 1):
+        if not _regular_block_allows_only_last_machine_gap(regular_blocks[block_size]):
+            return False
+    return True
+
+
+def _regular_block_assignments_by_size(
+    mtf_profile: MtfProfile,
+    starts: FallbackStarts,
+) -> dict[int, tuple[tuple[int, ...], ...]]:
+    scheduled_job_count = mtf_profile.scheduled_job_count
+    fallback_jobs: set[int] = set()
+
+    def add_fallback_block(start: int | None, count: int) -> None:
+        if start is None or count == 0:
+            return
+        fallback_jobs.update(range(start, start + count))
+
+    add_fallback_block(starts.s2, mtf_profile.nF2)
+    add_fallback_block(starts.s3, mtf_profile.nF3)
+    add_fallback_block(starts.s4, mtf_profile.nF4)
+    regular_jobs = [job_index for job_index in range(1, scheduled_job_count + 1) if job_index not in fallback_jobs]
+    regular_cursor = 0
+
+    def consume_regular_block(job_count: int, machine_count: int) -> tuple[tuple[int, ...], ...]:
+        nonlocal regular_cursor
+        assignments: list[tuple[int, ...]] = []
+        for _ in range(machine_count):
+            assignments.append(tuple(regular_jobs[regular_cursor : regular_cursor + job_count]))
+            regular_cursor += job_count
+        return tuple(assignments)
+
+    consume_regular_block(2, mtf_profile.nR2)
+    regular_cursor += 2 * mtf_profile.nF2
+    r3_assignments = consume_regular_block(3, mtf_profile.nR3)
+    regular_cursor += 3 * mtf_profile.nF3
+    r4_assignments = consume_regular_block(4, mtf_profile.nR4)
+    regular_cursor += 4 * mtf_profile.nF4
+    r5_assignments = consume_regular_block(5, mtf_profile.nR5)
+    return {
+        3: r3_assignments,
+        4: r4_assignments,
+        5: r5_assignments,
+    }
+
+
+def _regular_block_allows_only_last_machine_gap(
+    assignments: tuple[tuple[int, ...], ...],
+) -> bool:
+    flattened = [job_index for machine_jobs in assignments for job_index in machine_jobs]
+    if len(flattened) <= 1:
+        return True
+
+    last_machine = assignments[-1]
+    last_machine_start = len(flattened) - len(last_machine)
+    gap_seen = False
+    for pair_index, (left_job, right_job) in enumerate(zip(flattened, flattened[1:])):
+        if right_job == left_job + 1:
+            continue
+        if gap_seen or pair_index != last_machine_start:
+            return False
+        gap_seen = True
+    return True
+
+
+def _jobs_are_consecutive(machine_jobs: tuple[int, ...]) -> bool:
+    return all(right_job == left_job + 1 for left_job, right_job in zip(machine_jobs, machine_jobs[1:]))
 
 
 def _case_3_1_opt_profile_matches(
