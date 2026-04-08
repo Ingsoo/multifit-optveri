@@ -340,6 +340,9 @@ def _apply_profile_cardinality_constraints(
     if case.mtf_profile is not None:
         layout = _build_mtf_profile_layout(case)
         if _use_exact_mtf(case):
+            if q is None:
+                raise ValueError("Exact MTF assignments require q variables.")
+            _apply_exact_mtf_assignments(model, case, q, layout)
             if case.fallback_starts is None:
                 raise ValueError("Exact MTF constraints require fallback_starts.")
             _apply_exact_mtf_constraints(
@@ -352,27 +355,26 @@ def _apply_profile_cardinality_constraints(
                 target,
                 layout,
             )
-        else:
-            if q is None:
-                raise ValueError("Generic MTF profile constraints require q variables.")
-            # Fix the number of jobs on each MTF machine according to the chosen
-            # coarse MTF profile branch, then refine with profile-specific cuts.
-            for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
-                model.addConstr(
-                    gp.quicksum(q[machine_index, j] for j in truncated_jobs) == cardinality,
-                    name=f"mtf_profile_cardinality[{machine_index}]",
-                )
-            _apply_mtf_base_profile_constraints(
-                model,
-                case,
-                p,
-                x,
-                q,
-                truncated_jobs,
-                machines,
-                target,
-                layout,
+        if q is None:
+            raise ValueError("MTF profile constraints require q variables.")
+        # Fix the number of jobs on each MTF machine according to the chosen
+        # coarse MTF profile branch, then refine with profile-specific cuts.
+        for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
+            model.addConstr(
+                gp.quicksum(q[machine_index, j] for j in truncated_jobs) == cardinality,
+                name=f"mtf_profile_cardinality[{machine_index}]",
             )
+        _apply_mtf_base_profile_constraints(
+            model,
+            case,
+            p,
+            x,
+            q,
+            truncated_jobs,
+            machines,
+            target,
+            layout,
+        )
 
     if (
         case.opt_profile is not None
@@ -1200,6 +1202,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     processing_time_lower_bound = _processing_time_lower_bound(case)
     use_exact_mtf = _use_exact_mtf(case)
 
+    # CHECKED(2026-04-08): defining variables, UB/LB of proc.
     # Variable creation: compare these domains with the paper's variable
     # definitions, keeping in mind that the bounds are solver-strengthening
     # choices and may be tighter than the bare formulation.
@@ -1221,11 +1224,8 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         )
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
     z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
-    q: TupleVarMap | None = None
-    s: TupleVarMap | None = None
-    if not use_exact_mtf:
-        q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
-        s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
+    q: TupleVarMap | None = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
+    s: TupleVarMap | None = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
 
     # CHECKED(2026-04-08): sorting processing times, OPT-related constraints
     model.addConstrs(
@@ -1244,48 +1244,47 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         name="opt_makespan",
     )
 
-    if not use_exact_mtf:
-        assert q is not None and s is not None
-        assert z_var is not None
-        model.addConstrs(
-            # Every job except n is assigned in the simulated MTF schedule.
-            (gp.quicksum(q[i, j] for i in machines) == 1 for j in truncated_jobs),
-            name="mtf_assign",
-        )
-        model.addConstrs(
-            # Initialization of machine partial sums in MTF.
-            (s[i, 1] == q[i, 1] * p[1] for i in machines),
-            name="mtf_init",
-        )
-        model.addConstrs(
-            (
-                # Incremental update of each machine load under MTF.
-                s[i, j] - s[i, j - 1] == q[i, j] * p[j]
-                for i in machines
-                for j in range(2, case.job_count)
-            ),
-            name="mtf_contribution",
-        )
-        model.addConstrs(
-            # All truncated MTF loads must stay within the target ratio.
-            (s[i, j] <= target for i in machines for j in truncated_jobs),
-            name="mtf_feasible",
-        )
-        model.addConstrs(
-            (
-                # If job j is not assigned to any machine up to i, then machine i
-                # must already be too full to receive it.
-                s[i, j - 1] + p[j] >= target * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
-                for i in machines
-                for j in range(2, case.job_count)
-            ),
-            name="mtf_logic",
-        )
-        model.addConstrs(
-            # Objective value z_var is the minimum post-n overload across machines.
-            (s[i, case.job_count - 1] + p[case.job_count] >= z_var for i in machines),
-            name="mtf_objective",
-        )
+    assert q is not None and s is not None
+    assert z_var is not None
+    model.addConstrs(
+        # Every job except n is assigned in the simulated MTF schedule.
+        (gp.quicksum(q[i, j] for i in machines) == 1 for j in truncated_jobs),
+        name="mtf_assign",
+    )
+    model.addConstrs(
+        # Initialization of machine partial sums in MTF.
+        (s[i, 1] == q[i, 1] * p[1] for i in machines),
+        name="mtf_init",
+    )
+    model.addConstrs(
+        (
+            # Incremental update of each machine load under MTF.
+            s[i, j] - s[i, j - 1] == q[i, j] * p[j]
+            for i in machines
+            for j in range(2, case.job_count)
+        ),
+        name="mtf_contribution",
+    )
+    model.addConstrs(
+        # All truncated MTF loads must stay within the target ratio.
+        (s[i, j] <= target for i in machines for j in truncated_jobs),
+        name="mtf_feasible",
+    )
+    model.addConstrs(
+        (
+            # If job j is not assigned to any machine up to i, then machine i
+            # must already be too full to receive it.
+            s[i, j - 1] + p[j] >= target * (1.0 - gp.quicksum(q[i_prime, j] for i_prime in range(1, i + 1)))
+            for i in machines
+            for j in range(2, case.job_count)
+        ),
+        name="mtf_logic",
+    )
+    model.addConstrs(
+        # Objective value z_var is the minimum post-n overload across machines.
+        (s[i, case.job_count - 1] + p[case.job_count] >= z_var for i in machines),
+        name="mtf_objective",
+    )
 
     # Global strengthenings used in all runs. Audit separately from the pure
     # base MIQP if you want to know what is paper-essential vs solver-helpful.
@@ -1340,15 +1339,22 @@ def _apply_exact_mtf_assignments(
     q: TupleVarMap,
     layout: MtfProfileLayout,
 ) -> dict[int, tuple[int, ...]]:
-    """Fix the full exact MTF assignment once fallback starts are branched."""
+    """Fix the full exact MTF assignment via q-variable bounds."""
 
     assignment = _build_exact_mtf_assignment(case, layout)
-    for machine_index, machine_jobs in assignment.items():
-        for offset, job_index in enumerate(machine_jobs, start=1):
-            model.addConstr(
-                q[machine_index, job_index] == 1,
-                name=f"exact_q[{machine_index},{offset}]",
-            )
+    assigned_machine_by_job = {
+        job_index: machine_index
+        for machine_index, machine_jobs in assignment.items()
+        for job_index in machine_jobs
+    }
+    if len(assigned_machine_by_job) != case.job_count - 1:
+        raise ValueError("Exact MTF assignment must cover each truncated job exactly once.")
+    for job_index in range(1, case.job_count):
+        assigned_machine = assigned_machine_by_job[job_index]
+        for machine_index in range(1, case.machine_count + 1):
+            value = 1.0 if machine_index == assigned_machine else 0.0
+            q[machine_index, job_index].LB = value
+            q[machine_index, job_index].UB = value
     return assignment
 
 

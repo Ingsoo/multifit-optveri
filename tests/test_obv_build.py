@@ -108,16 +108,14 @@ class ObvBuildTests(unittest.TestCase):
 
         try:
             model: GurobiModel = built.model
-            reduced_case_2_vars = 24 + (8 * 24) + 1
-            self.assertEqual(model.NumVars, reduced_case_2_vars)
-            self.assertLess(model.NumVars, base_expected.total_variables)
+            self.assertEqual(model.NumVars, base_expected.total_variables)
             pn_var = cast(GurobiVar | None, model.getVarByName("p[24]"))
             self.assertIsNotNone(pn_var)
             self.assertAlmostEqual(pn_var.LB, float(Fraction(7, 34)))
             self.assertAlmostEqual(pn_var.UB, float(Fraction(11, 51)))
             self.assertIsNotNone(model.getVarByName("Z"))
-            self.assertIsNone(model.getVarByName("q[1,1]"))
-            self.assertIsNone(model.getVarByName("s[1,1]"))
+            self.assertIsNotNone(model.getVarByName("q[1,1]"))
+            self.assertIsNotNone(model.getVarByName("s[1,1]"))
         finally:
             built.model.dispose()
 
@@ -202,9 +200,9 @@ class ObvBuildTests(unittest.TestCase):
             )
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[3]"))
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[4]"))
+            self.assertIsNotNone(model.getConstrByName("R3_processing_times[5]"))
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[7]"))
             self.assertIsNotNone(model.getConstrByName("R3_processing_times[12]"))
-            self.assertIsNone(model.getConstrByName("R3_processing_times[5]"))
             self.assertIsNone(model.getConstrByName("F2_processing_times[3]"))
             self.assertIsNone(model.getConstrByName("opt_cardinality_lb[1]"))
             self.assertIsNone(model.getConstrByName("opt_cardinality_ub[1]"))
@@ -213,7 +211,15 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNone(model.getConstrByName("mtf_cardinality_lb[1]"))
             self.assertIsNone(model.getConstrByName("mtf_cardinality_ub[1]"))
             self.assertIsNone(model.getConstrByName("mtf_init_fixed[1]"))
-            self.assertIsNone(model.getConstrByName("mtf_profile_cardinality[1]"))
+            self.assertIsNotNone(model.getConstrByName("mtf_profile_cardinality[1]"))
+            q_1_6 = cast(GurobiVar | None, model.getVarByName("q[1,6]"))
+            q_2_6 = cast(GurobiVar | None, model.getVarByName("q[2,6]"))
+            self.assertIsNotNone(q_1_6)
+            self.assertIsNotNone(q_2_6)
+            self.assertEqual(q_1_6.LB, 1.0)
+            self.assertEqual(q_1_6.UB, 1.0)
+            self.assertEqual(q_2_6.LB, 0.0)
+            self.assertEqual(q_2_6.UB, 0.0)
         finally:
             built.model.dispose()
 
@@ -231,8 +237,8 @@ class ObvBuildTests(unittest.TestCase):
 
         try:
             model: GurobiModel = built.model
-            self.assertIsNone(model.getVarByName("q[1,1]"))
-            self.assertIsNone(model.getVarByName("s[1,1]"))
+            self.assertIsNotNone(model.getVarByName("q[1,1]"))
+            self.assertIsNotNone(model.getVarByName("s[1,1]"))
             self.assertIsNotNone(model.getVarByName("Z"))
             self.assertEqual(model.ModelSense, obv.GRB.MAXIMIZE)
             self.assertIsNotNone(model.getConstrByName("exact_mtf_objective[1]"))
@@ -245,6 +251,14 @@ class ObvBuildTests(unittest.TestCase):
                 _linear_row_var_names(model, "exact_mtf_objective[1]"),
                 ["p[1]", "p[5]", "p[25]", "Z"],
             )
+            q_1_5 = cast(GurobiVar | None, model.getVarByName("q[1,5]"))
+            q_2_5 = cast(GurobiVar | None, model.getVarByName("q[2,5]"))
+            self.assertIsNotNone(q_1_5)
+            self.assertIsNotNone(q_2_5)
+            self.assertEqual(q_1_5.LB, 1.0)
+            self.assertEqual(q_1_5.UB, 1.0)
+            self.assertEqual(q_2_5.LB, 0.0)
+            self.assertEqual(q_2_5.UB, 0.0)
         finally:
             built.model.dispose()
 
