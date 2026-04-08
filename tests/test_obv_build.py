@@ -108,14 +108,14 @@ class ObvBuildTests(unittest.TestCase):
 
         try:
             model: GurobiModel = built.model
-            reduced_case_2_vars = 24 + (8 * 24)
+            reduced_case_2_vars = 24 + (8 * 24) + 1
             self.assertEqual(model.NumVars, reduced_case_2_vars)
             self.assertLess(model.NumVars, base_expected.total_variables)
             pn_var = cast(GurobiVar | None, model.getVarByName("p[24]"))
             self.assertIsNotNone(pn_var)
             self.assertAlmostEqual(pn_var.LB, float(Fraction(7, 34)))
             self.assertAlmostEqual(pn_var.UB, float(Fraction(11, 51)))
-            self.assertIsNone(model.getVarByName("Z"))
+            self.assertIsNotNone(model.getVarByName("Z"))
             self.assertIsNone(model.getVarByName("q[1,1]"))
             self.assertIsNone(model.getVarByName("s[1,1]"))
         finally:
@@ -194,7 +194,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNotNone(model.getConstrByName("exact_mtf_fallback[1]"))
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_objective[1]"),
-                ["p[1]", "p[2]", "p[6]", "p[30]"],
+                ["p[1]", "p[2]", "p[6]", "p[30]", "Z"],
             )
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_fallback[1]"),
@@ -233,7 +233,8 @@ class ObvBuildTests(unittest.TestCase):
             model: GurobiModel = built.model
             self.assertIsNone(model.getVarByName("q[1,1]"))
             self.assertIsNone(model.getVarByName("s[1,1]"))
-            self.assertIsNone(model.getVarByName("Z"))
+            self.assertIsNotNone(model.getVarByName("Z"))
+            self.assertEqual(model.ModelSense, obv.GRB.MAXIMIZE)
             self.assertIsNotNone(model.getConstrByName("exact_mtf_objective[1]"))
             self.assertIsNotNone(model.getConstrByName("F1_fallback_processing_times[5]"))
             self.assertIsNotNone(model.getConstrByName("processing_time_in_D[1]"))
@@ -242,7 +243,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertIsNone(model.getConstrByName("processing_time_in_D_prime[11]"))
             self.assertEqual(
                 _linear_row_var_names(model, "exact_mtf_objective[1]"),
-                ["p[1]", "p[5]", "p[25]"],
+                ["p[1]", "p[5]", "p[25]", "Z"],
             )
         finally:
             built.model.dispose()

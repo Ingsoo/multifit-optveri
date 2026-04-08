@@ -255,6 +255,7 @@ def _apply_profile_cardinality_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
+    z_var: GurobiVar | None,
     q: TupleVarMap | None,
     jobs: range,
     truncated_jobs: range,
@@ -316,6 +317,7 @@ def _apply_profile_cardinality_constraints(
                 case,
                 p,
                 x,
+                z_var,
                 machines,
                 target,
                 layout,
@@ -1186,14 +1188,12 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             name=f"p[{job_index}]",
         )
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
+    z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
     q: TupleVarMap | None = None
     s: TupleVarMap | None = None
     if not use_exact_mtf:
         q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
         s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
-    z_var: GurobiVar | None = None
-    if not use_exact_mtf:
-        z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
 
     # Section 4 base MIQP constraints start here.
     model.addConstrs(
@@ -1273,8 +1273,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     if case.enforce_target_lower_bound:
         # In verification mode we only care about candidate counterexamples with
         # objective value at least the claimed target ratio.
-        if z_var is not None:
-            model.addConstr(z_var >= target, name="target_lb")
+        model.addConstr(z_var >= target, name="target_lb")
 
     # Section 5 common case split conditions.
     if case.acceleration_case is not AccelerationCase.BASE:
@@ -1288,6 +1287,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             case,
             p,
             x,
+            z_var,
             q,
             jobs,
             truncated_jobs,
@@ -1295,12 +1295,9 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             target,
         )
 
-    if z_var is not None:
-        model.setObjective(z_var, GRB.MAXIMIZE)
-        # Maximizing z_var asks whether there exists an instance whose final failed
-        # MTF placement would exceed the claimed target ratio.
-    else:
-        model.setObjective(0.0, GRB.MINIMIZE)
+    model.setObjective(z_var, GRB.MAXIMIZE)
+    # Maximizing z_var asks whether there exists an instance whose final failed
+    # MTF placement would exceed the claimed target ratio.
     model.update()
     return BuiltObvModel(model=model, dimensions=dimensions)
 
@@ -1399,6 +1396,7 @@ def _apply_exact_mtf_constraints(
     case: ExperimentCase,
     p: PVarMap,
     x: TupleVarMap,
+    z_var: GurobiVar | None,
     machines: range,
     target: float,
     layout: MtfProfileLayout,
@@ -1412,10 +1410,12 @@ def _apply_exact_mtf_constraints(
     assignment = _build_exact_mtf_assignment(case, layout)
     fallback_machines = set(layout.f2_machines) | set(layout.f3_machines) | set(layout.f4_machines)
 
-    # Every machine's load + p_n >= target.
+    # Every machine's load + p_n upper-bounds the objective z_var.
+    if z_var is None:
+        raise ValueError("Exact MTF constraints require z_var.")
     for machine_index, machine_jobs in assignment.items():
         model.addConstr(
-            gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= target,
+            gp.quicksum(p[j] for j in machine_jobs) + p[case.job_count] >= z_var,
             name=f"exact_mtf_objective[{machine_index}]",
         )
 

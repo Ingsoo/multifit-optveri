@@ -53,6 +53,7 @@ def _sample_result(output_dir: Path, *, case_id: str = "case_a") -> SolveResult:
         job_count=24,
         ell=9,
         mtf_profile="(0,4,0,1,0,3,0,0)",
+        fallback_starts=None,
         opt_profile="(8,0,0)",
         target_ratio="20/17",
         verification_result="VERIFIED",
@@ -62,6 +63,7 @@ def _sample_result(output_dir: Path, *, case_id: str = "case_a") -> SolveResult:
         runtime_seconds=0.25,
         node_count=0.0,
         mip_gap=None,
+        optimal_p_values_desc_exact=None,
         optimal_p_values_desc=None,
         output_dir=str(output_dir),
         built_at_utc="2026-03-26T00:00:00+00:00",
@@ -116,15 +118,6 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(
             _verification_result(status="TIME_LIMIT", objective_value=None, target_ratio="20/17"),
             "UNKNOWN",
-        )
-        self.assertEqual(
-            _verification_result(
-                status="OPTIMAL",
-                objective_value=None,
-                target_ratio="20/17",
-                feasibility_only=True,
-            ),
-            "NOT_VERIFIED",
         )
 
     def test_profile_format_helpers(self) -> None:

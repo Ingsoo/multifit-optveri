@@ -21,7 +21,6 @@ from multifit_optveri.models.obv import (
     BuiltObvModel,
     _build_exact_mtf_assignment,
     _build_mtf_profile_layout,
-    _use_exact_mtf,
     build_obv_model,
 )
 
@@ -211,17 +210,12 @@ def _verification_result(
     status: str,
     objective_value: float | None,
     target_ratio: str,
-    feasibility_only: bool = False,
 ) -> str:
     """Classify one solved branch as verified/not-verified for the paper claim."""
 
     target = float(parse_ratio(target_ratio))
     if status == "INFEASIBLE":
         return "VERIFIED"
-    if feasibility_only:
-        if status == "OPTIMAL":
-            return "NOT_VERIFIED"
-        return "UNKNOWN"
     if objective_value is not None:
         if objective_value <= target:
             return "VERIFIED"
@@ -398,7 +392,6 @@ class RunRecorder:
 def run_case(case: ExperimentCase) -> SolveResult:
     built_model: BuiltObvModel = build_obv_model(case)
     model: GurobiModel = built_model.model
-    feasibility_only = _use_exact_mtf(case)
 
     case.output_dir.mkdir(parents=True, exist_ok=True)
     if case.write_lp:
@@ -407,8 +400,8 @@ def run_case(case: ExperimentCase) -> SolveResult:
     model.optimize()
 
     has_solution = model.SolCount > 0
-    objective_value = None if feasibility_only else _finite_or_none(float(model.ObjVal) if has_solution else None)
-    objective_bound = None if feasibility_only else _finite_or_none(float(model.ObjBound) if hasattr(model, "ObjBound") else None)
+    objective_value = _finite_or_none(float(model.ObjVal) if has_solution else None)
+    objective_bound = _finite_or_none(float(model.ObjBound) if hasattr(model, "ObjBound") else None)
     optimal_p_values_desc_exact = _extract_optimal_p_values_desc_exact(model, case.job_count)
     optimal_p_values_desc = _extract_optimal_p_values_desc(model, case.job_count)
     result = SolveResult(
@@ -426,7 +419,6 @@ def run_case(case: ExperimentCase) -> SolveResult:
             status=_status_name(model.Status),
             objective_value=objective_value,
             target_ratio=format_ratio(case.target_ratio),
-            feasibility_only=feasibility_only,
         ),
         status=_status_name(model.Status),
         objective_value=objective_value,
