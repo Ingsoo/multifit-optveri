@@ -20,6 +20,7 @@ from multifit_optveri.models.obv import (
     _machine_after_pair_block,
     _mtf_cardinality_upper_bound,
     _opt_cardinality_upper_bound,
+    _profiled_opt_processing_time_upper_bound,
     _processing_time_lower_bound,
     _processing_time_upper_bound,
     _require_gurobi,
@@ -70,6 +71,28 @@ class ObvHelperTests(unittest.TestCase):
     def test_cardinality_upper_bounds_match_old_strengthening(self) -> None:
         self.assertEqual(_opt_cardinality_upper_bound(Fraction(11, 51)), 4)
         self.assertEqual(_mtf_cardinality_upper_bound(8, Fraction(20, 17)), 4)
+
+    def test_profiled_opt_processing_time_upper_bounds_use_cumulative_thresholds(self) -> None:
+        lower_bound = Fraction(24, 119)
+
+        case_with_s4 = _sample_case(
+            acceleration_case=AccelerationCase.BASE,
+            machine_count=8,
+            job_count=30,
+            opt_profile=OptProfile(2, 6, 0, pattern="generic"),
+        )
+        self.assertIsNone(_profiled_opt_processing_time_upper_bound(_sample_case(opt_profile=None), 7, lower_bound))
+        self.assertEqual(_processing_time_upper_bound(case_with_s4, 6, lower_bound), Fraction(71, 119))
+        self.assertEqual(_processing_time_upper_bound(case_with_s4, 7, lower_bound), Fraction(47, 119))
+
+        case_with_s5 = _sample_case(
+            acceleration_case=AccelerationCase.BASE,
+            machine_count=8,
+            job_count=36,
+            opt_profile=OptProfile(2, 0, 6, pattern="generic"),
+        )
+        self.assertEqual(_processing_time_upper_bound(case_with_s5, 6, lower_bound), Fraction(71, 119))
+        self.assertEqual(_processing_time_upper_bound(case_with_s5, 7, lower_bound), Fraction(24, 119))
 
     def test_validate_paper_acceleration_case(self) -> None:
         _validate_paper_acceleration_case(_sample_case())

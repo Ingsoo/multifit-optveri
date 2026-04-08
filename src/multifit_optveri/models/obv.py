@@ -148,6 +148,33 @@ def _opt_job_cardinality_lower_bound(case: ExperimentCase) -> int:
     return min(machine_cardinalities)
 
 
+def _profiled_opt_processing_time_upper_bound(
+    case: ExperimentCase,
+    job_index: int,
+    lower_bound: Fraction,
+) -> Fraction | None:
+    """Return the profile-aware pigeonhole upper bound on p_j when available."""
+
+    profile = case.opt_profile
+    if profile is None:
+        return None
+
+    upper_bound = Fraction(1, 1)
+
+    # If j exceeds the total capacity of all 3-job OPT machines, then among the
+    # first j jobs at least one must lie on a 4+-job machine, so p_j <= 1 - 3 p_n.
+    if profile.nS4 + profile.nS5 > 0 and job_index >= 3 * profile.nS3 + 1:
+        upper_bound = min(upper_bound, Fraction(1, 1) - 3 * lower_bound)
+
+    # Likewise, if j exceeds the total capacity of all 3- and 4-job OPT
+    # machines, then at least one of the first j jobs lies on a 5-job machine,
+    # so p_j <= 1 - 4 p_n.
+    if profile.nS5 > 0 and job_index >= 3 * profile.nS3 + 4 * profile.nS4 + 1:
+        upper_bound = min(upper_bound, Fraction(1, 1) - 4 * lower_bound)
+
+    return upper_bound
+
+
 def _processing_time_upper_bound(case: ExperimentCase, job_index: int, lower_bound: Fraction) -> Fraction:
     """Return the variable upper bound used for p_j.
 
@@ -164,11 +191,14 @@ def _processing_time_upper_bound(case: ExperimentCase, job_index: int, lower_bou
         upper_bound,
         Fraction(1, 1) - (opt_job_cardinality_lower_bound - 1) * lower_bound,
     )
+    profiled_upper_bound = _profiled_opt_processing_time_upper_bound(case, job_index, lower_bound)
+    if profiled_upper_bound is not None:
+        upper_bound = min(upper_bound, profiled_upper_bound)
     if job_index == case.job_count and case.acceleration_case is not AccelerationCase.BASE:
         pn_upper_bound = case.acceleration_case.pn_range.upper
         if pn_upper_bound is not None:
             upper_bound = min(upper_bound, pn_upper_bound)
-    return upper_bound
+    return max(upper_bound, lower_bound)
 
 
 def _tighten_processing_time_bounds_by_split(
@@ -1197,7 +1227,7 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
         s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
 
-    # Section 4 base MIQP constraints start here.
+    # CHECKED(2026-04-08): sorting processing times, OPT-related constraints
     model.addConstrs(
         # Jobs are globally sorted by processing time.
         (p[j] >= p[j + 1] for j in truncated_jobs),
