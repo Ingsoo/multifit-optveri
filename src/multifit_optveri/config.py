@@ -15,7 +15,7 @@ class SolverConfig:
     mip_gap: float | None = None
     threads: int | None = None
     presolve: int | None = None
-    legacy_best_bd_stop_at_target: bool = False
+    legacy_best_bd_stop_at_target: bool = True
     non_convex: int = 2
     output_flag: int = 1
 
@@ -45,9 +45,7 @@ class ExperimentConfig:
         if len(set(self.acceleration_cases)) != len(self.acceleration_cases):
             raise ValueError("acceleration_cases must not contain duplicates.")
         if not self.derive_job_counts and not self.explicit_job_counts:
-            raise ValueError(
-                "Either derive_job_counts must be true or explicit_job_counts must be provided."
-            )
+            raise ValueError("Either derive_job_counts must be true or explicit_job_counts must be provided.")
 
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:

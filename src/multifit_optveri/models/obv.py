@@ -344,8 +344,10 @@ def _apply_profile_cardinality_constraints(
                 layout,
             )
 
-    if case.opt_profile is not None and layout is not None and (
-        case.ell is not None or case.acceleration_case is AccelerationCase.CASE_3
+    if (
+        case.opt_profile is not None
+        and layout is not None
+        and (case.ell is not None or case.acceleration_case is AccelerationCase.CASE_3)
     ):
         _apply_case_profile_constraints(
             model,
@@ -665,7 +667,7 @@ def _apply_global_valid_inequalities(
             ),
             name="mtf_init_order",
         )
-    if case.mtf_profile is None:
+    if case.mtf_profile is None and q is not None:
         model.addConstrs(
             (
                 2 <= gp.quicksum(q[machine_index, job_index] for job_index in truncated_jobs)
