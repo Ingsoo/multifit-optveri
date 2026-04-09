@@ -31,6 +31,7 @@ class ExperimentConfig:
     write_lp: bool
     enforce_target_lower_bound: bool
     solver: SolverConfig
+    write_case_dirs: bool = True
     acceleration_cases: tuple[AccelerationCase, ...] = (AccelerationCase.BASE,)
 
     def __post_init__(self) -> None:
@@ -46,6 +47,8 @@ class ExperimentConfig:
             raise ValueError("acceleration_cases must not contain duplicates.")
         if not self.derive_job_counts and not self.explicit_job_counts:
             raise ValueError("Either derive_job_counts must be true or explicit_job_counts must be provided.")
+        if self.write_lp and not self.write_case_dirs:
+            raise ValueError("write_lp requires write_case_dirs to be enabled.")
 
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
@@ -77,6 +80,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         ),
         output_root=Path(experiment.get("output_root", "results")),
         write_lp=bool(experiment.get("write_lp", False)),
+        write_case_dirs=bool(experiment.get("write_case_dirs", True)),
         enforce_target_lower_bound=bool(experiment.get("enforce_target_lower_bound", True)),
         solver=solver_config,
     )

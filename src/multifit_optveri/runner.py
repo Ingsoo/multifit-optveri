@@ -311,7 +311,8 @@ def create_run_artifacts(cases: list[ExperimentCase]) -> RunArtifacts:
         manifest_json_path=run_dir / "manifest.json",
         latest_run_path=experiment_dir / "latest_run.txt",
     )
-    cases_dir.mkdir(parents=True, exist_ok=True)
+    if any(case.write_case_dirs for case in cases):
+        cases_dir.mkdir(parents=True, exist_ok=True)
     artifacts.latest_run_path.parent.mkdir(parents=True, exist_ok=True)
     artifacts.latest_run_path.write_text(str(run_dir), encoding="utf-8")
     return artifacts
@@ -390,10 +391,14 @@ class RunRecorder:
 
 
 def run_case(case: ExperimentCase) -> SolveResult:
+    if case.write_lp and not case.write_case_dirs:
+        raise ValueError("write_lp requires write_case_dirs to be enabled for each case.")
+
     built_model: BuiltObvModel = build_obv_model(case)
     model: GurobiModel = built_model.model
 
-    case.output_dir.mkdir(parents=True, exist_ok=True)
+    if case.write_case_dirs:
+        case.output_dir.mkdir(parents=True, exist_ok=True)
     if case.write_lp:
         model.write(str(case.output_dir / "model.lp"))
 
@@ -451,7 +456,8 @@ def run_case(case: ExperimentCase) -> SolveResult:
         "variable_counts": built_model.dimensions.variable_counts,
         "constraint_counts": built_model.dimensions.constraint_counts,
     }
-    _write_json(case.output_dir / "summary.json", summary_payload)
+    if case.write_case_dirs:
+        _write_json(case.output_dir / "summary.json", summary_payload)
     return result
 
 

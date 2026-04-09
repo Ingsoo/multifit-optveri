@@ -54,6 +54,7 @@ class ExperimentCase:
     write_lp: bool
     enforce_target_lower_bound: bool
     solver: SolverConfig
+    write_case_dirs: bool = True
     fallback_starts: FallbackStarts | None = None
     run_output_root: Path | None = None
 
@@ -183,6 +184,7 @@ def enumerate_cases(
                             target_ratio=config.target_ratio,
                             output_root=config.output_root,
                             write_lp=config.write_lp,
+                            write_case_dirs=config.write_case_dirs,
                             enforce_target_lower_bound=config.enforce_target_lower_bound,
                             solver=config.solver,
                             fallback_starts=None,
@@ -241,6 +243,7 @@ def enumerate_cases(
                                 target_ratio=config.target_ratio,
                                 output_root=config.output_root,
                                 write_lp=config.write_lp,
+                                write_case_dirs=config.write_case_dirs,
                                 enforce_target_lower_bound=config.enforce_target_lower_bound,
                                 solver=config.solver,
                                 fallback_starts=fallback_starts,

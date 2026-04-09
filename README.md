@@ -243,8 +243,8 @@ Inside that directory you'll find:
 - `summary.jsonl`: one JSON object per completed case
 - `overview.json`: aggregated counts and run-level metadata
 - `manifest.json`: run filters and basic invocation metadata
-- `cases/<case-id>/summary.json`: detailed per-case output
-- `cases/<case-id>/model.lp`: optional LP export when enabled
+- `cases/<case-id>/summary.json`: detailed per-case output when `write_case_dirs = true`
+- `cases/<case-id>/model.lp`: optional LP export when enabled; requires `write_case_dirs = true`
 
 The file `results/<experiment-name>/latest_run.txt` points to the most recent run directory.
 

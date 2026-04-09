@@ -23,6 +23,7 @@ from multifit_optveri.runner import (
     _status_name,
     _verification_result,
     create_run_artifacts,
+    run_case,
     run_cases,
 )
 
@@ -237,6 +238,103 @@ class RunnerTests(unittest.TestCase):
             latest_run = Path((experiment_dir / "latest_run.txt").read_text(encoding="utf-8"))
             self.assertTrue((latest_run / "summary.csv").exists())
             self.assertTrue((latest_run / "overview.json").exists())
+
+    def test_run_case_skips_case_summary_when_case_dirs_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case = ExperimentCase(
+                experiment_name="demo",
+                machine_count=8,
+                job_count=3,
+                acceleration_case=AccelerationCase.CASE_1,
+                ell=9,
+                mtf_profile=None,
+                opt_profile=None,
+                target_ratio=parse_ratio("20/17"),
+                output_root=Path(tmpdir),
+                write_lp=False,
+                enforce_target_lower_bound=True,
+                solver=SolverConfig(),
+                write_case_dirs=False,
+            )
+
+            class _Var:
+                def __init__(self, value: float) -> None:
+                    self.X = value
+
+            class _FakeModel:
+                Status = 2
+                SolCount = 1
+                ObjVal = 1.0
+                ObjBound = 1.0
+                Runtime = 0.5
+                NodeCount = 0.0
+                MIPGap = 0.0
+                NumVars = 10
+                NumConstrs = 8
+                NumQConstrs = 1
+                NumGenConstrs = 0
+
+                def optimize(self) -> None:
+                    return None
+
+                def getVarByName(self, name: str):
+                    values = {
+                        "p[1]": _Var(0.5),
+                        "p[2]": _Var(0.333333333333),
+                        "p[3]": _Var(0.166666666667),
+                    }
+                    return values.get(name)
+
+            fake_built_model = SimpleNamespace(
+                model=_FakeModel(),
+                dimensions=SimpleNamespace(
+                    total_variables=10,
+                    total_constraints=9,
+                    variable_counts={"p": 3},
+                    constraint_counts={"linear": 8, "quadratic": 1},
+                ),
+            )
+
+            with patch(
+                "multifit_optveri.runner.GRB",
+                SimpleNamespace(
+                    OPTIMAL=2,
+                    INFEASIBLE=3,
+                    TIME_LIMIT=9,
+                    INTERRUPTED=11,
+                    INF_OR_UNBD=4,
+                    UNBOUNDED=5,
+                    USER_OBJ_LIMIT=15,
+                ),
+            ), patch(
+                "multifit_optveri.runner.build_obv_model",
+                return_value=fake_built_model,
+            ):
+                result = run_case(case)
+
+            self.assertEqual(result.status, "OPTIMAL")
+            self.assertFalse(case.output_dir.exists())
+            self.assertFalse((case.output_dir / "summary.json").exists())
+
+    def test_run_case_rejects_lp_without_case_dirs(self) -> None:
+        case = ExperimentCase(
+            experiment_name="demo",
+            machine_count=8,
+            job_count=24,
+            acceleration_case=AccelerationCase.CASE_1,
+            ell=9,
+            mtf_profile=None,
+            opt_profile=None,
+            target_ratio=parse_ratio("20/17"),
+            output_root=Path("results"),
+            write_lp=True,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(),
+            write_case_dirs=False,
+        )
+
+        with self.assertRaises(ValueError):
+            run_case(case)
 
 
 if __name__ == "__main__":

@@ -43,6 +43,28 @@ class RunnerLayoutTests(unittest.TestCase):
                 artifacts.run_dir / "cases" / prepared_case.case_id,
             )
 
+    def test_create_run_artifacts_skips_cases_dir_when_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case = ExperimentCase(
+                experiment_name="demo",
+                machine_count=8,
+                job_count=24,
+                acceleration_case=AccelerationCase.CASE_1,
+                ell=9,
+                mtf_profile=None,
+                opt_profile=None,
+                target_ratio=parse_ratio("20/17"),
+                output_root=Path(tmpdir),
+                write_lp=False,
+                enforce_target_lower_bound=True,
+                solver=SolverConfig(),
+                write_case_dirs=False,
+            )
+
+            artifacts = create_run_artifacts([case])
+
+            self.assertFalse(artifacts.cases_dir.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
