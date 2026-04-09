@@ -22,15 +22,13 @@ Research codebase for building and running Gurobi-based verification experiments
 
 1. Create the Conda environment from `environment.yml`.
 2. Activate the environment.
-3. Install this repository in editable mode with the Gurobi extra.
-4. Confirm that your Gurobi license is available in the environment.
+3. Confirm that your Gurobi license is available in the environment.
 
 Example:
 
 ```powershell
 conda env create -f environment.yml
 conda activate multifit-optveri
-python -m pip install -e ".[gurobi]"
 python -c "import gurobipy; print(gurobipy.gurobi.version())"
 ```
 
@@ -40,10 +38,13 @@ If you need to recreate the environment:
 conda env remove -n multifit-optveri
 conda env create -f environment.yml
 conda activate multifit-optveri
-python -m pip install -e ".[gurobi]"
 ```
 
 The project uses Python 3.11 in Conda because Gurobi support tends to lag behind the latest CPython releases.
+
+The environment file now installs the repository itself in editable mode with the
+`gurobi` extra, so no separate `pip install -e ".[gurobi]"` step is needed when
+you create the environment from the repository root.
 
 ## Planning experiment cases
 
