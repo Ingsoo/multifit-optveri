@@ -300,6 +300,7 @@ def _apply_profile_cardinality_constraints(
     # resulting model still differs, this is the next file section to inspect.
     layout: MtfProfileLayout | None = None
 
+    # CHECKED(2026-04-08): constraints related to ELL
     if case.acceleration_case is AccelerationCase.CASE_3 and case.mtf_profile is not None:
         prefix_total = case.mtf_profile.nF1 + case.mtf_profile.nR2 + case.mtf_profile.nF2
         for job_index in range(1, case.job_count):
@@ -327,7 +328,7 @@ def _apply_profile_cardinality_constraints(
                     p[job_index] <= Fraction(3, 17).numerator / Fraction(3, 17).denominator + p[case.job_count],
                     name=f"processing_time_in_D_prime[{job_index}]",
                 )
-
+    # CHECKED(2026-04-08): constraints related to OPT
     if case.opt_profile is not None:
         # Fix the number of jobs on each OPT machine according to the chosen
         # coarse OPT profile branch.
@@ -353,8 +354,6 @@ def _apply_profile_cardinality_constraints(
                 machines,
                 layout,
             )
-        if q is None:
-            raise ValueError("MTF profile constraints require q variables.")
         # Fix the number of jobs on each MTF machine according to the chosen
         # coarse MTF profile branch, then refine with profile-specific cuts.
         for machine_index, cardinality in enumerate(case.mtf_profile.machine_cardinalities, start=1):
@@ -362,6 +361,8 @@ def _apply_profile_cardinality_constraints(
                 gp.quicksum(q[machine_index, j] for j in truncated_jobs) == cardinality,
                 name=f"mtf_profile_cardinality[{machine_index}]",
             )
+
+        # TODO: need to check the correctness, but does not impact the case 2/3 results.
         _apply_mtf_base_profile_constraints(
             model,
             case,
