@@ -199,10 +199,7 @@ def _run_instance(
     _log("Running OPT...")
     optimum = solve_opt_schedule(processing_times, machine_count)
     _log(f"OPT finished with Cmax={format_ratio(optimum.makespan)}")
-    title = (
-        f"{len(processing_times)} jobs on {machine_count} machines | "
-        f"MULTIFIT={format_ratio(multifit.makespan)} vs OPT={format_ratio(optimum.makespan)}"
-    )
+    title = f"MTF(I) = {format_ratio(multifit.makespan)} vs OPT(I) = {format_ratio(optimum.makespan)}"
     output_path = plot_schedule_comparison(
         multifit,
         optimum,

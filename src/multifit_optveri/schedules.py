@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+import math
 from pathlib import Path
 import re
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
@@ -411,12 +412,21 @@ def solve_opt_schedule(
 def _schedule_color_map(*schedules: ScheduleResult):
     import matplotlib.pyplot as plt
 
-    job_ids = sorted({job.job_id for schedule in schedules for machine in schedule.machines for job in machine.jobs})
+    def _lighten_rgba(color: tuple[float, float, float, float], blend: float = 0.68) -> tuple[float, float, float, float]:
+        return tuple(channel * blend + (1.0 - blend) for channel in color[:3]) + (color[3],)
+
+    processing_times = sorted(
+        {job.processing_time for schedule in schedules for machine in schedule.machines for job in machine.jobs},
+        reverse=True,
+    )
     cmap = plt.get_cmap("tab20")
-    return {job_id: cmap((job_id - 1) % cmap.N) for job_id in job_ids}
+    return {
+        processing_time: _lighten_rgba(cmap(index % cmap.N))
+        for index, processing_time in enumerate(processing_times)
+    }
 
 
-def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map: dict[int, object]) -> bool:
+def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map: dict[Fraction, object]) -> bool:
     machine_count = schedule.machine_count
     y_positions = list(range(machine_count, 0, -1))
     has_fallback = False
@@ -432,13 +442,13 @@ def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map:
                 width,
                 left=left,
                 height=0.72,
-                color=color_map[job.job_id],
+                color=color_map[job.processing_time],
                 edgecolor=edge_color,
                 linewidth=1.5 if job.is_fallback else 0.8,
                 hatch=hatch,
             )
-            if width >= 0.06 * x_limit:
-                label = f"j{job.job_id}\n{format_ratio(job.processing_time)}"
+            label = f"j{job.job_id}\n{format_ratio(job.processing_time)}"
+            if width >= 1.4:
                 ax.text(
                     left + width / 2,
                     y_value,
@@ -447,17 +457,31 @@ def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map:
                     va="center",
                     fontsize=8,
                     color="black",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.72, "pad": 0.2},
+                )
+            elif width >= 1.0:
+                ax.text(
+                    left + width / 2,
+                    y_value,
+                    label,
+                    ha="center",
+                    va="center",
+                    fontsize=6,
+                    color="black",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 0.12},
                 )
             left += width
         ax.text(left + 0.01 * x_limit, y_value, format_ratio(machine.load), va="center", fontsize=9)
 
     ax.set_xlim(0, x_limit)
+    ax.set_xticks(list(range(0, math.ceil(x_limit) + 1)))
     ax.set_yticks(y_positions)
-    ax.set_yticklabels([f"M{i}" for i in range(1, machine_count + 1)])
+    ax.set_yticklabels([str(i) for i in range(1, machine_count + 1)])
     ax.grid(axis="x", linestyle="--", alpha=0.35)
-    subtitle = f"{schedule.algorithm} (Cmax={format_ratio(schedule.makespan)})"
+    algorithm_label = "MULTIFIT" if schedule.algorithm == "MULTIFIT-FFD" else schedule.algorithm
+    subtitle = f"{algorithm_label} (Cmax={format_ratio(schedule.makespan)})"
     if schedule.feasibility_capacity is not None:
-        subtitle += f"\nFFD cap={format_ratio(schedule.feasibility_capacity)}"
+        subtitle += f"\nFFD capa = {format_ratio(schedule.feasibility_capacity)}"
         ax.axvline(float(schedule.feasibility_capacity), color="crimson", linestyle=":", linewidth=1.5)
     ax.set_title(subtitle)
     ax.set_xlabel("Load")

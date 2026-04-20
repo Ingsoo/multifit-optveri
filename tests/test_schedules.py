@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fractions import Fraction
+import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from multifit_optveri import schedules
 from multifit_optveri.schedules import (
@@ -87,15 +89,21 @@ class ScheduleTests(unittest.TestCase):
 
     @unittest.skipIf(schedules.GRB is None, "gurobipy is unavailable")
     def test_opt_schedule_solves_minmax_assignment(self) -> None:
-        result = solve_opt_schedule(
-            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
-            2,
-        )
+        try:
+            result = solve_opt_schedule(
+                (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
+                2,
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ == "GurobiError":
+                self.skipTest(f"gurobi runtime is unavailable: {exc}")
+            raise
 
         self.assertEqual(result.machine_count, 2)
         self.assertEqual(result.makespan, Fraction(5, 1))
         self.assertEqual(sum(machine.load for machine in result.machines), Fraction(10, 1))
 
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
     def test_plot_schedule_comparison_writes_png_when_matplotlib_is_available(self) -> None:
         multifit = first_fit_schedule(
             (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
@@ -125,6 +133,147 @@ class ScheduleTests(unittest.TestCase):
             self.assertEqual(written_path, output_path)
             self.assertTrue(output_path.exists())
 
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
+    def test_plot_schedule_comparison_uses_requested_labels(self) -> None:
+        multifit = first_fit_schedule(
+            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
+            2,
+            Fraction(5, 1),
+        )
+        self.assertIsNotNone(multifit)
+
+        optimum = schedules.ScheduleResult(
+            algorithm="OPT",
+            machine_count=2,
+            machines=multifit.machines,
+            makespan=Fraction(5, 1),
+            feasibility_capacity=None,
+            sorted_job_ids=multifit.sorted_job_ids,
+            sorted_processing_times=multifit.sorted_processing_times,
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture_savefig(self, *args, **kwargs) -> None:
+            captured["suptitle"] = self._suptitle.get_text() if self._suptitle is not None else None
+            captured["axis_titles"] = [axis.get_title() for axis in self.axes]
+            captured["yticklabels"] = [tick.get_text() for tick in self.axes[0].get_yticklabels()]
+            captured["xticklabels"] = [tick.get_text() for tick in self.axes[0].get_xticklabels()]
+
+        output_path = Path("comparison.png")
+        with patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=_capture_savefig):
+            written_path = plot_schedule_comparison(
+                multifit,
+                optimum,
+                output_path,
+                title="MTF(I) = 11 vs OPT(I) = 11",
+            )
+
+        self.assertEqual(written_path, output_path)
+        self.assertEqual(captured["suptitle"], "MTF(I) = 11 vs OPT(I) = 11")
+        self.assertEqual(captured["axis_titles"], ["MULTIFIT (Cmax=5)\nFFD capa = 5", "OPT (Cmax=5)"])
+        self.assertEqual(captured["yticklabels"], ["1", "2"])
+        self.assertEqual(captured["xticklabels"][:7], ["0", "1", "2", "3", "4", "5", "6"])
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
+    def test_plot_schedule_comparison_shows_all_integer_xticks_in_range(self) -> None:
+        multifit = first_fit_schedule(
+            (Fraction(12, 1), Fraction(10, 1), Fraction(10, 1), Fraction(9, 1), Fraction(8, 1), Fraction(8, 1)),
+            3,
+            Fraction(17, 1),
+        )
+        self.assertIsNotNone(multifit)
+
+        optimum = schedules.ScheduleResult(
+            algorithm="OPT",
+            machine_count=3,
+            machines=multifit.machines,
+            makespan=Fraction(17, 1),
+            feasibility_capacity=None,
+            sorted_job_ids=multifit.sorted_job_ids,
+            sorted_processing_times=multifit.sorted_processing_times,
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture_savefig(self, *args, **kwargs) -> None:
+            captured["xticklabels"] = [tick.get_text() for tick in self.axes[0].get_xticklabels()]
+
+        with patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=_capture_savefig):
+            plot_schedule_comparison(multifit, optimum, Path("comparison.png"))
+
+        xticklabels = captured["xticklabels"]
+        self.assertIn("15", xticklabels)
+        self.assertIn("16", xticklabels)
+        self.assertIn("17", xticklabels)
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
+    def test_plot_schedule_comparison_reuses_colors_for_equal_processing_times(self) -> None:
+        multifit = first_fit_schedule(
+            (Fraction(4, 1), Fraction(4, 1), Fraction(2, 1), Fraction(2, 1)),
+            2,
+            Fraction(6, 1),
+        )
+        self.assertIsNotNone(multifit)
+
+        optimum = schedules.ScheduleResult(
+            algorithm="OPT",
+            machine_count=2,
+            machines=multifit.machines,
+            makespan=Fraction(6, 1),
+            feasibility_capacity=None,
+            sorted_job_ids=multifit.sorted_job_ids,
+            sorted_processing_times=multifit.sorted_processing_times,
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture_savefig(self, *args, **kwargs) -> None:
+            patches = self.axes[0].patches
+            captured["facecolors"] = [patch.get_facecolor() for patch in patches]
+
+        with patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=_capture_savefig):
+            plot_schedule_comparison(multifit, optimum, Path("comparison.png"))
+
+        facecolors = captured["facecolors"]
+        self.assertEqual(len(facecolors), 4)
+        self.assertEqual(facecolors[0], facecolors[2])
+        self.assertEqual(facecolors[1], facecolors[3])
+        self.assertNotEqual(facecolors[0], facecolors[1])
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
+    def test_plot_schedule_comparison_keeps_labels_for_unit_width_jobs(self) -> None:
+        multifit = first_fit_schedule(
+            (Fraction(12, 1), Fraction(10, 1), Fraction(10, 1), Fraction(9, 1), Fraction(8, 1), Fraction(8, 1), Fraction(1, 1)),
+            3,
+            Fraction(18, 1),
+        )
+        self.assertIsNotNone(multifit)
+
+        optimum = schedules.ScheduleResult(
+            algorithm="OPT",
+            machine_count=3,
+            machines=multifit.machines,
+            makespan=Fraction(18, 1),
+            feasibility_capacity=None,
+            sorted_job_ids=multifit.sorted_job_ids,
+            sorted_processing_times=multifit.sorted_processing_times,
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture_savefig(self, *args, **kwargs) -> None:
+            captured["texts"] = [text.get_text() for text in self.axes[0].texts]
+            captured["rotations"] = [text.get_rotation() for text in self.axes[0].texts]
+
+        with patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=_capture_savefig):
+            plot_schedule_comparison(multifit, optimum, Path("comparison.png"))
+
+        self.assertIn("j7\n1", captured["texts"])
+        unit_label_index = captured["texts"].index("j7\n1")
+        self.assertEqual(captured["rotations"][unit_label_index], 0.0)
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
     def test_plot_multifit_history_writes_attempt_pngs_when_matplotlib_is_available(self) -> None:
         multifit = multifit_schedule(
             (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
