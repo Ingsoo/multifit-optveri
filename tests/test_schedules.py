@@ -208,6 +208,35 @@ class ScheduleTests(unittest.TestCase):
         self.assertIn("17", xticklabels)
 
     @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
+    def test_plot_schedule_comparison_supports_different_machine_counts(self) -> None:
+        multifit = schedules.first_fit_overflow_schedule(
+            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1)),
+            2,
+            Fraction(4, 1),
+        )
+        optimum = schedules.ScheduleResult(
+            algorithm="OPT",
+            machine_count=2,
+            machines=multifit.machines[:2],
+            makespan=Fraction(4, 1),
+            feasibility_capacity=None,
+            sorted_job_ids=multifit.sorted_job_ids,
+            sorted_processing_times=multifit.sorted_processing_times,
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture_savefig(self, *args, **kwargs) -> None:
+            captured["left_yticklabels"] = [tick.get_text() for tick in self.axes[0].get_yticklabels()]
+            captured["right_yticklabels"] = [tick.get_text() for tick in self.axes[1].get_yticklabels()]
+
+        with patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=_capture_savefig):
+            plot_schedule_comparison(multifit, optimum, Path("comparison.png"))
+
+        self.assertEqual(captured["left_yticklabels"], ["1", "2", "3"])
+        self.assertEqual(captured["right_yticklabels"], [])
+
+    @unittest.skipUnless(importlib.util.find_spec("matplotlib") is not None, "matplotlib is unavailable")
     def test_plot_schedule_comparison_reuses_colors_for_equal_processing_times(self) -> None:
         multifit = first_fit_schedule(
             (Fraction(4, 1), Fraction(4, 1), Fraction(2, 1), Fraction(2, 1)),

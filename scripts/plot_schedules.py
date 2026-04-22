@@ -66,6 +66,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of MULTIFIT binary-search iterations.",
     )
     parser.add_argument(
+        "--capa",
+        default=None,
+        help="Fixed FFD capacity to plot instead of running MULTIFIT, e.g. '21' or '20/17'.",
+    )
+    parser.add_argument(
         "--save-multifit-history",
         action="store_true",
         help="Save one PNG per MULTIFIT capacity attempt under artifacts/schedules/<instance>_history/.",
@@ -158,6 +163,30 @@ def _log(message: str) -> None:
     print(f"[plot_schedules] {message}")
 
 
+def _build_fixed_ffd_schedule(
+    processing_times,
+    machine_count: int,
+    capacity_text: str,
+):
+    from multifit_optveri.math_utils import parse_ratio
+    from multifit_optveri.schedules import first_fit_overflow_schedule, first_fit_schedule
+
+    capacity = parse_ratio(capacity_text)
+    ffd = first_fit_schedule(processing_times, machine_count, capacity)
+    if ffd is None:
+        ffd = first_fit_overflow_schedule(processing_times, machine_count, capacity)
+    return ffd.__class__(
+        algorithm="FFD",
+        machine_count=ffd.machine_count,
+        machines=ffd.machines,
+        makespan=ffd.makespan,
+        sorted_job_ids=ffd.sorted_job_ids,
+        sorted_processing_times=ffd.sorted_processing_times,
+        feasibility_capacity=ffd.feasibility_capacity,
+        attempts=ffd.attempts,
+    )
+
+
 def _run_instance(
     root: Path,
     args: argparse.Namespace,
@@ -181,6 +210,7 @@ def _run_instance(
     processing_times = parse_processing_times(parsed_jobs_text)
     _log(f"Parsed {len(processing_times)} jobs for {machine_count} machines")
 
+    history_paths: tuple[Path, ...] = ()
     def log_multifit_attempt(attempt) -> None:
         status_text = "feasible" if attempt.feasible else "needs extra machine"
         _log(
@@ -188,34 +218,47 @@ def _run_instance(
             f"capacity={format_ratio(attempt.capacity)} -> {status_text}"
         )
 
-    _log("Running MULTIFIT...")
-    multifit = multifit_schedule(
-        processing_times,
-        machine_count,
-        iterations=args.multifit_iterations,
-        attempt_callback=log_multifit_attempt,
-    )
-    _log(f"MULTIFIT finished with Cmax={format_ratio(multifit.makespan)}")
+    if args.capa is not None:
+        if args.save_multifit_history:
+            raise ValueError("--save-multifit-history cannot be used together with --capa.")
+        _log(f"Running fixed-capacity FFD with capa={args.capa}...")
+        left_schedule = _build_fixed_ffd_schedule(processing_times, machine_count, args.capa)
+        if left_schedule.machine_count > machine_count:
+            _log(
+                f"FFD needed {left_schedule.machine_count} machines, so the figure includes "
+                f"{left_schedule.machine_count - machine_count} overflow machine(s)."
+            )
+        _log(f"FFD finished with Cmax={format_ratio(left_schedule.makespan)}")
+    else:
+        _log("Running MULTIFIT...")
+        left_schedule = multifit_schedule(
+            processing_times,
+            machine_count,
+            iterations=args.multifit_iterations,
+            attempt_callback=log_multifit_attempt,
+        )
+        _log(f"MULTIFIT finished with Cmax={format_ratio(left_schedule.makespan)}")
+
     _log("Running OPT...")
     optimum = solve_opt_schedule(processing_times, machine_count)
     _log(f"OPT finished with Cmax={format_ratio(optimum.makespan)}")
-    title = f"MTF(I) = {format_ratio(multifit.makespan)} vs OPT(I) = {format_ratio(optimum.makespan)}"
+    title_prefix = "FFD" if args.capa is not None else "MTF"
+    title = f"{title_prefix}(I) = {format_ratio(left_schedule.makespan)} vs OPT(I) = {format_ratio(optimum.makespan)}"
     output_path = plot_schedule_comparison(
-        multifit,
+        left_schedule,
         optimum,
         _resolve_output_path(root, args, instance_label),
         title=title,
     )
-    history_paths: tuple[Path, ...] = ()
     if args.save_multifit_history:
         _log("Saving MULTIFIT history figures...")
         history_paths = plot_multifit_history(
-            multifit,
+            left_schedule,
             _default_history_dir(root, instance_label),
             title_prefix=f"{instance_label} on {machine_count} machines",
         )
 
-    print(render_schedule_text(multifit))
+    print(render_schedule_text(left_schedule))
     print()
     print(render_schedule_text(optimum))
     print()

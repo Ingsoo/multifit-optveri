@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+from fractions import Fraction
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "plot_schedules.py"
@@ -15,6 +17,14 @@ _SPEC.loader.exec_module(plot_schedules_script)
 
 
 class PlotSchedulesScriptTests(unittest.TestCase):
+    def test_build_parser_accepts_fixed_capa(self) -> None:
+        parser = plot_schedules_script._build_parser()
+
+        args = parser.parse_args(["--instance", "demo", "--capa", "21"])
+
+        self.assertEqual(args.instance, "demo")
+        self.assertEqual(args.capa, "21")
+
     def test_resolve_jobs_file_prefers_inputs_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -95,6 +105,69 @@ class PlotSchedulesScriptTests(unittest.TestCase):
             output_path = plot_schedules_script._resolve_output_path(root, namespace, "jobs_26")
 
             self.assertEqual(output_path, root / "artifacts" / "schedules" / "jobs_26.png")
+
+    def test_build_fixed_ffd_schedule_sets_ffd_label(self) -> None:
+        schedule = plot_schedules_script._build_fixed_ffd_schedule(
+            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
+            2,
+            "5",
+        )
+
+        self.assertEqual(schedule.algorithm, "FFD")
+        self.assertEqual(schedule.makespan, Fraction(5, 1))
+        self.assertEqual(schedule.feasibility_capacity, Fraction(5, 1))
+
+    def test_build_fixed_ffd_schedule_rejects_infeasible_capacity(self) -> None:
+        schedule = plot_schedules_script._build_fixed_ffd_schedule(
+            (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1)),
+            2,
+            "4",
+        )
+
+        self.assertEqual(schedule.algorithm, "FFD")
+        self.assertEqual(schedule.machine_count, 3)
+        self.assertEqual(schedule.makespan, Fraction(4, 1))
+
+    def test_run_instance_uses_ffd_title_when_capa_is_provided(self) -> None:
+        args = type(
+            "Args",
+            (),
+            {
+                "machines": 2,
+                "multifit_iterations": 30,
+                "capa": "5",
+                "save_multifit_history": False,
+                "output": Path("comparison.png"),
+            },
+        )()
+        captured: dict[str, object] = {}
+
+        def fake_plot_schedule_comparison(left_schedule, optimum, output_path, *, title=None):
+            captured["algorithm"] = left_schedule.algorithm
+            captured["title"] = title
+            captured["output_path"] = output_path
+            return output_path
+
+        with patch("multifit_optveri.schedules.solve_opt_schedule") as mock_opt, patch(
+            "multifit_optveri.schedules.plot_schedule_comparison",
+            side_effect=fake_plot_schedule_comparison,
+        ):
+            mock_opt.return_value = plot_schedules_script._build_fixed_ffd_schedule(
+                (Fraction(4, 1), Fraction(3, 1), Fraction(2, 1), Fraction(1, 1)),
+                2,
+                "5",
+            )
+            result = plot_schedules_script._run_instance(
+                Path.cwd(),
+                args,
+                jobs_text="4\n3\n2\n1\n",
+                instance_label="demo",
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(captured["algorithm"], "FFD")
+        self.assertEqual(captured["title"], "FFD(I) = 5 vs OPT(I) = 5")
+        self.assertEqual(captured["output_path"], Path("comparison.png"))
 
 
 if __name__ == "__main__":

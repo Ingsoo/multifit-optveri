@@ -426,9 +426,17 @@ def _schedule_color_map(*schedules: ScheduleResult):
     }
 
 
-def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map: dict[Fraction, object]) -> bool:
+def _draw_schedule_axis(
+    ax,
+    schedule: ScheduleResult,
+    x_limit: float,
+    color_map: dict[Fraction, object],
+    *,
+    total_machine_count: int | None = None,
+) -> bool:
     machine_count = schedule.machine_count
-    y_positions = list(range(machine_count, 0, -1))
+    display_machine_count = total_machine_count if total_machine_count is not None else machine_count
+    y_positions = list(range(display_machine_count, display_machine_count - machine_count, -1))
     has_fallback = False
     for y_value, machine in zip(y_positions, schedule.machines):
         left = 0.0
@@ -475,8 +483,8 @@ def _draw_schedule_axis(ax, schedule: ScheduleResult, x_limit: float, color_map:
 
     ax.set_xlim(0, x_limit)
     ax.set_xticks(list(range(0, math.ceil(x_limit) + 1)))
-    ax.set_yticks(y_positions)
-    ax.set_yticklabels([str(i) for i in range(1, machine_count + 1)])
+    ax.set_yticks(list(range(display_machine_count, 0, -1)))
+    ax.set_yticklabels([str(i) for i in range(1, display_machine_count + 1)])
     ax.grid(axis="x", linestyle="--", alpha=0.35)
     algorithm_label = "MULTIFIT" if schedule.algorithm == "MULTIFIT-FFD" else schedule.algorithm
     subtitle = f"{algorithm_label} (Cmax={format_ratio(schedule.makespan)})"
@@ -520,11 +528,8 @@ def plot_schedule_comparison(
     except ImportError as exc:  # pragma: no cover - depends on local environment
         raise SchedulingUnavailableError("matplotlib is required to render schedule figures.") from exc
 
-    if multifit.machine_count != optimum.machine_count:
-        raise ValueError("Schedule figures require the same machine count for both schedules.")
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    machine_count = multifit.machine_count
+    machine_count = max(multifit.machine_count, optimum.machine_count)
     x_limit = 1.05 * float(max(multifit.makespan, optimum.makespan))
     color_map = _schedule_color_map(multifit, optimum)
 
@@ -536,8 +541,8 @@ def plot_schedule_comparison(
         constrained_layout=True,
     )
 
-    has_fallback = _draw_schedule_axis(axes[0], multifit, x_limit, color_map)
-    _draw_schedule_axis(axes[1], optimum, x_limit, color_map)
+    has_fallback = _draw_schedule_axis(axes[0], multifit, x_limit, color_map, total_machine_count=machine_count)
+    _draw_schedule_axis(axes[1], optimum, x_limit, color_map, total_machine_count=machine_count)
     axes[0].set_ylabel("Machine")
     if has_fallback:
         fig.legend(handles=_fallback_legend_handles(), loc="outside lower center", ncol=2, frameon=False)
