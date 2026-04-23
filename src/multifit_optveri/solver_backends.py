@@ -192,8 +192,11 @@ def _solve_case_with_scip_exact(case: ExperimentCase) -> BackendRunResult:
                 model.optimize()
 
                 has_solution = len(model.getSols()) > 0
+                status = _scip_status_name(model.getStatus())
+                if obv_scip.exact_target_stop_reached(model):
+                    status = "USER_OBJ_LIMIT"
                 outcome = SolverOutcome(
-                    status=_scip_status_name(model.getStatus()),
+                    status=status,
                     objective_value=_finite_or_none(float(model.getObjVal()) if has_solution else None),
                     objective_bound=_finite_or_none(float(model.getDualbound())),
                     runtime_seconds=_finite_or_none(float(model.getSolvingTime())),

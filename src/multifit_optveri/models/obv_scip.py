@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 from contextlib import contextmanager
+from fractions import Fraction
+from functools import lru_cache
+import inspect
 from itertools import product
+import os
+from pathlib import Path
 from typing import Any
 
 from multifit_optveri.experiments import ExperimentCase
@@ -9,15 +16,142 @@ from multifit_optveri.models import obv_core
 from multifit_optveri.models.obv_core import BuiltObvModel
 
 try:
+    from pyscipopt import Eventhdlr
     from pyscipopt import Model as PyScipModel
+    from pyscipopt import SCIP_EVENTTYPE
     from pyscipopt import quicksum as scip_quicksum
 except ImportError:  # pragma: no cover - exercised only when pyscipopt is missing
+    Eventhdlr = None
     PyScipModel = None
+    SCIP_EVENTTYPE = None
     scip_quicksum = None
 
 
 class ScipUnavailableError(RuntimeError):
     """Raised when SCIP support is requested but PySCIPOpt is unavailable."""
+
+
+class _ScipRational(ctypes.Structure):
+    pass
+
+
+_SCIP_OKAY = 1
+
+
+def _raise_for_scip_error(return_code: int, *, func_name: str) -> None:
+    if return_code != _SCIP_OKAY:
+        raise ScipUnavailableError(f"SCIP exact helper call {func_name} failed with return code {return_code}.")
+
+
+@lru_cache(maxsize=1)
+def _load_scip_library() -> ctypes.CDLL:
+    candidates: list[str] = []
+    for discovered in (ctypes.util.find_library("libscip"), ctypes.util.find_library("scip")):
+        if discovered:
+            candidates.append(discovered)
+    scipopt_dir = Path(os.environ["SCIPOPTDIR"]) if "SCIPOPTDIR" in os.environ else None
+    if scipopt_dir is not None:
+        for relative_path in ("bin/libscip.dll", "lib/libscip.so", "lib/libscip.dylib", "bin/scip.dll"):
+            candidate = scipopt_dir / relative_path
+            if candidate.exists():
+                candidates.append(str(candidate))
+    if PyScipModel is not None:
+        module_dir = Path(inspect.getfile(PyScipModel)).resolve().parent
+        for pattern in ("libscip*.dll", "libscip*.so", "libscip*.dylib", "scip*.dll"):
+            for candidate in module_dir.glob(pattern):
+                candidates.append(str(candidate))
+    for candidate in candidates:
+        try:
+            return ctypes.CDLL(candidate)
+        except OSError:
+            continue
+    raise ScipUnavailableError(
+        "Unable to load the SCIP shared library for exact dual-bound access. "
+        "Make sure SCIP is installed with shared-library support."
+    )
+
+
+@lru_cache(maxsize=1)
+def _pycapsule_get_pointer() -> Any:
+    getter = ctypes.pythonapi.PyCapsule_GetPointer
+    getter.argtypes = [ctypes.py_object, ctypes.c_char_p]
+    getter.restype = ctypes.c_void_p
+    return getter
+
+
+def _get_scip_pointer(model: Any) -> ctypes.c_void_p:
+    if not hasattr(model, "to_ptr"):
+        raise ScipUnavailableError("This PySCIPOpt build does not expose Model.to_ptr for exact SCIP access.")
+    capsule = model.to_ptr(False)
+    pointer = _pycapsule_get_pointer()(capsule, b"scip")
+    if not pointer:
+        raise ScipUnavailableError("Unable to recover the underlying SCIP pointer from the PySCIPOpt model.")
+    return ctypes.c_void_p(pointer)
+
+
+def _exact_dual_bound_fraction(model: Any) -> Fraction:
+    library = _load_scip_library()
+    scip_pointer = _get_scip_pointer(model)
+
+    rational = ctypes.POINTER(_ScipRational)()
+    library.SCIPrationalCreate.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
+    library.SCIPrationalCreate.restype = ctypes.c_int
+    _raise_for_scip_error(library.SCIPrationalCreate(ctypes.byref(rational)), func_name="SCIPrationalCreate")
+
+    try:
+        library.SCIPgetDualboundExact.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ScipRational)]
+        library.SCIPgetDualboundExact.restype = ctypes.c_int
+        _raise_for_scip_error(
+            library.SCIPgetDualboundExact(scip_pointer, rational),
+            func_name="SCIPgetDualboundExact",
+        )
+
+        library.SCIPrationalStrLen.argtypes = [ctypes.POINTER(_ScipRational)]
+        library.SCIPrationalStrLen.restype = ctypes.c_size_t
+        buffer_size = int(library.SCIPrationalStrLen(rational)) + 1
+        text_buffer = ctypes.create_string_buffer(buffer_size)
+
+        library.SCIPrationalToString.argtypes = [ctypes.POINTER(_ScipRational), ctypes.c_char_p]
+        library.SCIPrationalToString.restype = ctypes.c_int
+        _raise_for_scip_error(
+            library.SCIPrationalToString(rational, text_buffer),
+            func_name="SCIPrationalToString",
+        )
+        rendered = text_buffer.value.decode("ascii").strip()
+        return Fraction(rendered)
+    finally:
+        library.SCIPrationalFree.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
+        library.SCIPrationalFree.restype = ctypes.c_int
+        _raise_for_scip_error(library.SCIPrationalFree(ctypes.byref(rational)), func_name="SCIPrationalFree")
+
+
+_EventhdlrBase = Eventhdlr if Eventhdlr is not None else object
+
+
+class _ExactDualBoundStopEventhdlr(_EventhdlrBase):  # type: ignore[misc]
+    def __init__(self, target_ratio: Fraction) -> None:
+        super().__init__()
+        self.target_ratio = target_ratio
+        self.hit = False
+
+    def eventinit(self) -> None:
+        if SCIP_EVENTTYPE is None:
+            raise ScipUnavailableError("PySCIPOpt event support is unavailable for exact SCIP stopping.")
+        self.model.catchEvent(SCIP_EVENTTYPE.DUALBOUNDIMPROVED, self)
+
+    def eventexit(self) -> None:
+        if SCIP_EVENTTYPE is None:
+            return
+        self.model.dropEvent(SCIP_EVENTTYPE.DUALBOUNDIMPROVED, self)
+
+    def eventexec(self, event: Any) -> None:
+        dual_bound = _exact_dual_bound_fraction(self.model)
+        if dual_bound < self.target_ratio:
+            return
+        self.hit = True
+        setattr(self.model, "_multifit_exact_target_reached", True)
+        setattr(self.model, "_multifit_exact_target_bound", dual_bound)
+        self.model.interruptSolve()
 
 
 class _ScipVarCompat:
@@ -402,6 +536,28 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
         return obv_core.build_obv_model(case)
 
 
+def install_exact_target_stop_handler(model: Any, case: ExperimentCase) -> None:
+    if Eventhdlr is None or SCIP_EVENTTYPE is None:
+        raise ScipUnavailableError("PySCIPOpt event support is unavailable for exact SCIP stopping.")
+    if not case.solver.legacy_best_bd_stop_at_target or not case.enforce_target_lower_bound:
+        return
+    _load_scip_library()
+    _get_scip_pointer(model)
+
+    handler = _ExactDualBoundStopEventhdlr(case.target_ratio)
+    model.includeEventhdlr(
+        handler,
+        "multifit_exact_target_stop",
+        "Interrupt exact SCIP once the exact dual bound reaches the target ratio.",
+    )
+    setattr(model, "_multifit_exact_target_stop_handler", handler)
+    setattr(model, "_multifit_exact_target_reached", False)
+
+
+def exact_target_stop_reached(model: Any) -> bool:
+    return bool(getattr(model, "_multifit_exact_target_reached", False))
+
+
 def read_exact_problem(problem_path: str, case: ExperimentCase) -> Any:
     if PyScipModel is None:
         raise ScipUnavailableError("PySCIPOpt is not available. Install pyscipopt to use the SCIP backend.")
@@ -419,4 +575,5 @@ def read_exact_problem(problem_path: str, case: ExperimentCase) -> Any:
     if case.solver.presolve is not None:
         _apply_scip_param(model, "Presolve", case.solver.presolve)
     model.readProblem(problem_path)
+    install_exact_target_stop_handler(model, case)
     return model

@@ -30,6 +30,8 @@ from multifit_optveri.models.obv import (
     _validate_paper_acceleration_case,
     build_obv_model,
 )
+from multifit_optveri.models.obv_core import BuiltObvModel
+from multifit_optveri.models.spec import derive_obv_dimensions
 from multifit_optveri.solver_backends import solve_case_with_backend
 
 
@@ -260,6 +262,69 @@ class ObvHelperTests(unittest.TestCase):
 
         self.assertIn(result.outcome.status, {"OPTIMAL", "TIME_LIMIT", "INFEASIBLE"})
         self.assertIsNotNone(result.outcome.objective_bound)
+
+    def test_scip_exact_target_stop_is_reported_as_user_obj_limit(self) -> None:
+        case = ExperimentCase(
+            experiment_name="demo",
+            machine_count=8,
+            job_count=24,
+            acceleration_case=AccelerationCase.CASE_1,
+            ell=9,
+            mtf_profile=None,
+            opt_profile=None,
+            target_ratio=Fraction(20, 17),
+            output_root=Path("results"),
+            write_lp=False,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(backend="scip", scip_exact=True, output_flag=0),
+        )
+
+        class _FakeExportModel:
+            def write(self, path: str) -> None:
+                Path(path).write_text("NAME TEST\nENDATA\n", encoding="ascii")
+
+            def dispose(self) -> None:
+                return None
+
+        class _FakeExactModel:
+            _multifit_exact_target_reached = True
+
+            def optimize(self) -> None:
+                return None
+
+            def getSols(self) -> list[object]:
+                return []
+
+            def getStatus(self) -> str:
+                return "userinterrupt"
+
+            def getDualbound(self) -> float:
+                return float(Fraction(20, 17))
+
+            def getSolvingTime(self) -> float:
+                return 0.25
+
+            def getNTotalNodes(self) -> int:
+                return 3
+
+            def freeProb(self) -> None:
+                return None
+
+            def getNConss(self, *, transformed: bool = False) -> int:
+                return 5
+
+        built_model = BuiltObvModel(
+            model=_FakeExportModel(),
+            dimensions=derive_obv_dimensions(8, 24, include_target_lower_bound=True, acceleration_case=case.acceleration_case),
+        )
+
+        with patch.object(obv_scip, "build_obv_model", return_value=built_model), patch.object(
+            obv_scip, "read_exact_problem", return_value=_FakeExactModel()
+        ):
+            result = solve_case_with_backend(case)
+
+        self.assertEqual(result.outcome.status, "USER_OBJ_LIMIT")
+        self.assertEqual(result.outcome.objective_bound, float(Fraction(20, 17)))
 
     def test_processing_time_bounds_are_consistent_for_all_m8_branches(self) -> None:
         config = load_experiment_config("configs/experiments/paper_base.toml")
