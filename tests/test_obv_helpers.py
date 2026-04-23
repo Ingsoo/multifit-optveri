@@ -30,6 +30,7 @@ from multifit_optveri.models.obv import (
     _validate_paper_acceleration_case,
     build_obv_model,
 )
+from multifit_optveri.solver_backends import solve_case_with_backend
 
 
 def _sample_case(
@@ -238,6 +239,27 @@ class ObvHelperTests(unittest.TestCase):
             self.assertIsNotNone(built.model.getVarByName("Z"))
         finally:
             built.model.dispose()
+
+    @unittest.skipIf(obv_scip.PyScipModel is None, "pyscipopt is unavailable")
+    def test_scip_exact_backend_solves_exported_base_case(self) -> None:
+        case = ExperimentCase(
+            experiment_name="demo",
+            machine_count=8,
+            job_count=24,
+            acceleration_case=AccelerationCase.CASE_1,
+            ell=9,
+            mtf_profile=None,
+            opt_profile=None,
+            target_ratio=Fraction(20, 17),
+            output_root=Path("results"),
+            write_lp=False,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(backend="scip", scip_exact=True, output_flag=0, time_limit_seconds=1),
+        )
+        result = solve_case_with_backend(case)
+
+        self.assertIn(result.outcome.status, {"OPTIMAL", "TIME_LIMIT", "INFEASIBLE"})
+        self.assertIsNotNone(result.outcome.objective_bound)
 
     def test_processing_time_bounds_are_consistent_for_all_m8_branches(self) -> None:
         config = load_experiment_config("configs/experiments/paper_base.toml")

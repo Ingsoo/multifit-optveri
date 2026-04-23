@@ -12,6 +12,7 @@ enforce_target_lower_bound = true
 
 [solver]
 backend = "SCIP"
+scip_exact = true
 mip_gap = 0.0
 threads = 0
 presolve = 1

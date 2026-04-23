@@ -227,6 +227,54 @@ def _tighten_processing_time_bounds_by_split(
     return lower_bound, upper_bound
 
 
+def _add_binary_product_mccormick_envelopes(
+    model: GurobiModel,
+    *,
+    binary_vars: TupleVarMap,
+    continuous_vars: PVarMap,
+    product_vars: TupleVarMap,
+    left_index: range,
+    right_index: range,
+    lower_bounds: dict[int, float],
+    upper_bounds: dict[int, float],
+    name_prefix: str,
+) -> None:
+    """Add the exact McCormick envelope for z[i,j] = b[i,j] * y[j]."""
+
+    model.addConstrs(
+        (
+            product_vars[i, j] >= lower_bounds[j] * binary_vars[i, j]
+            for i in left_index
+            for j in right_index
+        ),
+        name=f"{name_prefix}_mc_lb",
+    )
+    model.addConstrs(
+        (
+            product_vars[i, j] <= upper_bounds[j] * binary_vars[i, j]
+            for i in left_index
+            for j in right_index
+        ),
+        name=f"{name_prefix}_mc_ub",
+    )
+    model.addConstrs(
+        (
+            product_vars[i, j] >= continuous_vars[j] - upper_bounds[j] * (1.0 - binary_vars[i, j])
+            for i in left_index
+            for j in right_index
+        ),
+        name=f"{name_prefix}_mc_link_lb",
+    )
+    model.addConstrs(
+        (
+            product_vars[i, j] <= continuous_vars[j] - lower_bounds[j] * (1.0 - binary_vars[i, j])
+            for i in left_index
+            for j in right_index
+        ),
+        name=f"{name_prefix}_mc_link_ub",
+    )
+
+
 def _opt_cardinality_upper_bound(lower_bound: Fraction) -> int:
     """Compute the global upper bound on OPT machine cardinality."""
 
@@ -1192,6 +1240,8 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     # definitions, keeping in mind that the bounds are solver-strengthening
     # choices and may be tighter than the bare formulation.
     p: PVarMap = {}
+    p_lower_bounds: dict[int, float] = {}
+    p_upper_bounds: dict[int, float] = {}
     for job_index in jobs:
         job_lower_bound = processing_time_lower_bound
         job_upper_bound = _processing_time_upper_bound(case, job_index, processing_time_lower_bound)
@@ -1207,10 +1257,14 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             vtype=GRB.CONTINUOUS,
             name=f"p[{job_index}]",
         )
+        p_lower_bounds[job_index] = _as_float(job_lower_bound)
+        p_upper_bounds[job_index] = _as_float(job_upper_bound)
     x = model.addVars(machines, jobs, vtype=GRB.BINARY, name="x")
+    r = model.addVars(machines, jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="r")
     z_var = model.addVar(lb=0.0, vtype=GRB.CONTINUOUS, name="Z")
     q = model.addVars(machines, truncated_jobs, vtype=GRB.BINARY, name="q")
     s = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="s")
+    w = model.addVars(machines, truncated_jobs, lb=0.0, vtype=GRB.CONTINUOUS, name="w")
 
     # CHECKED(2026-04-08): sorting processing times, OPT-related constraints
     model.addConstrs(
@@ -1225,8 +1279,19 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     )
     model.addConstrs(
         # OPT makespan is normalized to 1.
-        (gp.quicksum(p[j] * x[i, j] for j in jobs) <= 1.0 for i in machines),
+        (gp.quicksum(r[i, j] for j in jobs) <= 1.0 for i in machines),
         name="opt_makespan",
+    )
+    _add_binary_product_mccormick_envelopes(
+        model,
+        binary_vars=x,
+        continuous_vars=p,
+        product_vars=r,
+        left_index=machines,
+        right_index=jobs,
+        lower_bounds=p_lower_bounds,
+        upper_bounds=p_upper_bounds,
+        name_prefix="opt_product",
     )
 
     model.addConstrs(
@@ -1236,17 +1301,28 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     )
     model.addConstrs(
         # Initialization of machine partial sums in MTF.
-        (s[i, 1] == q[i, 1] * p[1] for i in machines),
+        (s[i, 1] == w[i, 1] for i in machines),
         name="mtf_init",
     )
     model.addConstrs(
         (
             # Incremental update of each machine load under MTF.
-            s[i, j] - s[i, j - 1] == q[i, j] * p[j]
+            s[i, j] - s[i, j - 1] == w[i, j]
             for i in machines
             for j in range(2, case.job_count)
         ),
         name="mtf_contribution",
+    )
+    _add_binary_product_mccormick_envelopes(
+        model,
+        binary_vars=q,
+        continuous_vars=p,
+        product_vars=w,
+        left_index=machines,
+        right_index=truncated_jobs,
+        lower_bounds=p_lower_bounds,
+        upper_bounds=p_upper_bounds,
+        name_prefix="mtf_product",
     )
     model.addConstrs(
         # All truncated MTF loads must stay within the target ratio.

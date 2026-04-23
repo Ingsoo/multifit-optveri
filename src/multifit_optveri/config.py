@@ -18,6 +18,7 @@ class SolverConfig:
     mip_gap: float | None = None
     threads: int | None = None
     presolve: int | None = None
+    scip_exact: bool = False
     legacy_best_bd_stop_at_target: bool = True
     non_convex: int = 2
     output_flag: int = 1
@@ -78,6 +79,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         mip_gap=solver.get("mip_gap"),
         threads=solver.get("threads"),
         presolve=solver.get("presolve"),
+        scip_exact=bool(solver.get("scip_exact", False)),
         legacy_best_bd_stop_at_target=bool(solver.get("legacy_best_bd_stop_at_target", False)),
         non_convex=solver.get("non_convex", 2),
         output_flag=solver.get("output_flag", 1),

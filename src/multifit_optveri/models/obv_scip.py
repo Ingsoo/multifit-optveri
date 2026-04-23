@@ -162,26 +162,7 @@ class _ScipModelCompat:
                 self._apply_param(param_name, value)
 
     def _apply_param(self, name: str, value: object) -> None:
-        if name in {"OutputFlag", "LogToConsole"}:
-            verbose = 0 if _coerce_int_param(name, value) == 0 else 4
-            self._scip.setParam("display/verblevel", verbose)
-            return
-        if name == "TimeLimit":
-            self._scip.setParam("limits/time", value)
-            return
-        if name == "MIPGap":
-            self._scip.setParam("limits/gap", value)
-            return
-        if name == "Threads":
-            self._scip.setParam("parallel/maxnthreads", value)
-            return
-        if name == "Presolve":
-            max_rounds = -1 if _coerce_int_param(name, value) > 0 else 0
-            self._scip.setParam("presolving/maxrounds", max_rounds)
-            return
-        if name == "NonConvex":
-            return
-        self._scip.setParam(name, value)
+        _apply_scip_param(self._scip, name, value)
 
     def addVar(
         self,
@@ -237,7 +218,11 @@ class _ScipModelCompat:
         frame = getattr(generator, "gi_frame", None)
         if frame is None:
             return f"{prefix}[{counter}]"
-        indices = [value for key, value in frame.f_locals.items() if not key.startswith(".")]
+        indices = [
+            value
+            for key, value in frame.f_locals.items()
+            if not key.startswith(".") and isinstance(value, (str, int))
+        ]
         if not indices:
             return f"{prefix}[{counter}]"
         rendered = ",".join(str(value) for value in indices)
@@ -309,6 +294,10 @@ class _ScipModelCompat:
     def NumGenConstrs(self) -> int:
         return 0
 
+    @property
+    def ExactEnabled(self) -> bool:
+        return bool(self._scip.getParam("exact/enable"))
+
 
 class _ScipGrbCompat:
     BINARY = "B"
@@ -320,6 +309,32 @@ class _ScipGpCompat:
     Env = _ScipEnvCompat
     Model = _ScipModelCompat
     quicksum = staticmethod(_scip_quicksum_compat)
+
+
+def _apply_scip_param(model: Any, name: str, value: object) -> None:
+    if name in {"OutputFlag", "LogToConsole"}:
+        verbose = 0 if _coerce_int_param(name, value) == 0 else 4
+        model.setParam("display/verblevel", verbose)
+        return
+    if name == "TimeLimit":
+        model.setParam("limits/time", value)
+        return
+    if name == "MIPGap":
+        model.setParam("limits/gap", value)
+        return
+    if name == "Threads":
+        model.setParam("parallel/maxnthreads", value)
+        return
+    if name == "Presolve":
+        max_rounds = -1 if _coerce_int_param(name, value) > 0 else 0
+        model.setParam("presolving/maxrounds", max_rounds)
+        return
+    if name == "SCIPExact":
+        model.setBoolParam("exact/enable", bool(value))
+        return
+    if name == "NonConvex":
+        return
+    model.setParam(name, value)
 
 
 @contextmanager
@@ -365,3 +380,23 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
 
     with _patched_core_backend():
         return obv_core.build_obv_model(case)
+
+
+def read_exact_problem(problem_path: str, case: ExperimentCase) -> Any:
+    if PyScipModel is None:
+        raise ScipUnavailableError("PySCIPOpt is not available. Install pyscipopt to use the SCIP backend.")
+
+    model = PyScipModel()
+    _apply_scip_param(model, "SCIPExact", True)
+    _apply_scip_param(model, "OutputFlag", case.solver.output_flag)
+    _apply_scip_param(model, "LogToConsole", case.solver.output_flag)
+    if case.solver.time_limit_seconds is not None:
+        _apply_scip_param(model, "TimeLimit", case.solver.time_limit_seconds)
+    if case.solver.mip_gap is not None:
+        _apply_scip_param(model, "MIPGap", case.solver.mip_gap)
+    if case.solver.threads is not None:
+        _apply_scip_param(model, "Threads", case.solver.threads)
+    if case.solver.presolve is not None:
+        _apply_scip_param(model, "Presolve", case.solver.presolve)
+    model.readProblem(problem_path)
+    return model

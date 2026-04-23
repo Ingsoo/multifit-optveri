@@ -52,11 +52,13 @@ def derive_obv_dimensions(
 
     variable_counts = {
         # Base Section 4 variables: processing times, OPT assignment, MTF
-        # assignment/load tracking, and the objective variable Z.
+        # assignment/load tracking, linearization auxiliaries, and Z.
         "p": job_count,
         "x": machine_count * job_count,
+        "r": machine_count * job_count,
         "q": machine_count * (job_count - 1),
         "s": machine_count * (job_count - 1),
+        "w": machine_count * (job_count - 1),
         "Z": 1,
     }
 
@@ -67,9 +69,17 @@ def derive_obv_dimensions(
         "sorting": job_count - 1,
         "opt_assign": job_count,
         "opt_makespan": machine_count,
+        "opt_product_mc_lb": machine_count * job_count,
+        "opt_product_mc_ub": machine_count * job_count,
+        "opt_product_mc_link_lb": machine_count * job_count,
+        "opt_product_mc_link_ub": machine_count * job_count,
         "mtf_assign": job_count - 1,
         "mtf_init": machine_count,
         "mtf_contribution": machine_count * (job_count - 2),
+        "mtf_product_mc_lb": machine_count * (job_count - 1),
+        "mtf_product_mc_ub": machine_count * (job_count - 1),
+        "mtf_product_mc_link_lb": machine_count * (job_count - 1),
+        "mtf_product_mc_link_ub": machine_count * (job_count - 1),
         "mtf_feasible": machine_count * (job_count - 1),
         "mtf_logic": machine_count * (job_count - 2),
         "mtf_objective": machine_count,

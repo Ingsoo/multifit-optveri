@@ -84,6 +84,7 @@ class ObvBuildTests(unittest.TestCase):
             self.assertEqual(built.dimensions, expected)
             self.assertEqual(model.NumVars, expected.total_variables)
             self.assertEqual(_constraint_total(model), expected.total_constraints - case.machine_count)
+            self.assertEqual(model.NumQConstrs, 0)
             self.assertEqual(model.ModelSense, obv.GRB.MAXIMIZE)
         finally:
             built.model.dispose()
@@ -114,8 +115,10 @@ class ObvBuildTests(unittest.TestCase):
             self.assertAlmostEqual(pn_var.LB, float(Fraction(7, 34)))
             self.assertAlmostEqual(pn_var.UB, float(Fraction(11, 51)))
             self.assertIsNotNone(model.getVarByName("Z"))
+            self.assertIsNotNone(model.getVarByName("r[1,1]"))
             self.assertIsNotNone(model.getVarByName("q[1,1]"))
             self.assertIsNotNone(model.getVarByName("s[1,1]"))
+            self.assertIsNotNone(model.getVarByName("w[1,1]"))
         finally:
             built.model.dispose()
 

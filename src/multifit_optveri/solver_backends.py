@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
+from pathlib import Path
+import tempfile
 
 from multifit_optveri.config import SUPPORTED_SOLVER_BACKENDS
 from multifit_optveri.experiments import ExperimentCase
@@ -128,6 +130,9 @@ def _solve_case_with_gurobi(case: ExperimentCase) -> BackendRunResult:
 
 
 def _solve_case_with_scip(case: ExperimentCase) -> BackendRunResult:
+    if case.solver.scip_exact:
+        return _solve_case_with_scip_exact(case)
+
     built_model = obv_scip.build_obv_model(case)
     model = built_model.model
 
@@ -163,6 +168,55 @@ def _solve_case_with_scip(case: ExperimentCase) -> BackendRunResult:
     finally:
         if hasattr(model, "dispose"):
             model.dispose()
+
+
+def _solve_case_with_scip_exact(case: ExperimentCase) -> BackendRunResult:
+    export_case = replace(case, solver=replace(case.solver, scip_exact=False))
+    built_model = obv_scip.build_obv_model(export_case)
+    export_model = built_model.model
+
+    try:
+        if case.write_case_dirs:
+            case.output_dir.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(prefix="multifit_scip_exact_") as tmpdir:
+            exact_input_path = Path(tmpdir) / f"{case.case_id}.mps"
+            export_model.write(str(exact_input_path))
+
+            if case.write_lp:
+                persisted_path = case.output_dir / "model.mps"
+                persisted_path.write_bytes(exact_input_path.read_bytes())
+
+            model = obv_scip.read_exact_problem(str(exact_input_path), case)
+            try:
+                model.optimize()
+
+                has_solution = len(model.getSols()) > 0
+                outcome = SolverOutcome(
+                    status=_scip_status_name(model.getStatus()),
+                    objective_value=_finite_or_none(float(model.getObjVal()) if has_solution else None),
+                    objective_bound=_finite_or_none(float(model.getDualbound())),
+                    runtime_seconds=_finite_or_none(float(model.getSolvingTime())),
+                    node_count=_finite_or_none(float(model.getNTotalNodes())),
+                    mip_gap=_finite_or_none(float(model.getGap()) if has_solution else None),
+                    optimal_p_values=None,
+                )
+                constraint_summary = ConstraintSummary(
+                    total_constraints=int(model.getNConss(transformed=False)),
+                    linear_constraints=None,
+                    quadratic_constraints=None,
+                    general_constraints=None,
+                )
+                return BackendRunResult(
+                    dimensions=built_model.dimensions,
+                    constraint_summary=constraint_summary,
+                    outcome=outcome,
+                )
+            finally:
+                model.freeProb()
+    finally:
+        if hasattr(export_model, "dispose"):
+            export_model.dispose()
 
 
 def _extract_scip_optimal_p_values(model: object, job_count: int) -> tuple[float, ...] | None:

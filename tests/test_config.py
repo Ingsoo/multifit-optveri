@@ -52,6 +52,31 @@ enforce_target_lower_bound = true
 
         self.assertFalse(config.write_case_dirs)
 
+    def test_load_experiment_config_reads_scip_exact(self) -> None:
+        config_text = """[experiment]
+name = "demo"
+target_ratio = "20/17"
+machine_values = [8]
+derive_job_counts = true
+explicit_job_counts = []
+acceleration_cases = ["case_1"]
+output_root = "results"
+write_lp = false
+write_case_dirs = true
+enforce_target_lower_bound = true
+
+[solver]
+backend = "scip"
+scip_exact = true
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(config_text, encoding="utf-8")
+            config = load_experiment_config(path)
+
+        self.assertEqual(config.solver.backend, "scip")
+        self.assertTrue(config.solver.scip_exact)
+
     def test_experiment_config_rejects_lp_without_case_dirs(self) -> None:
         with self.assertRaises(ValueError):
             ExperimentConfig(
