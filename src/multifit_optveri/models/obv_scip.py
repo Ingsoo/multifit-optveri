@@ -102,10 +102,16 @@ def _unwrap_expr(value: Any) -> Any:
 
 def _scip_quicksum_compat(values) -> Any:
     if scip_quicksum is None:
-        raise ScipUnavailableError(
-            "PySCIPOpt is not available. Install pyscipopt to use the SCIP backend."
-        )
+        raise ScipUnavailableError("PySCIPOpt is not available. Install pyscipopt to use the SCIP backend.")
     return scip_quicksum(_unwrap_expr(value) for value in values)
+
+
+def _coerce_int_param(name: str, value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    raise TypeError(f"SCIP parameter {name!r} expected an int-compatible value, got {type(value).__name__}.")
 
 
 class _ScipTupleDict(dict):
@@ -145,9 +151,7 @@ class _ScipEnvCompat:
 class _ScipModelCompat:
     def __init__(self, name: str, env: _ScipEnvCompat | None = None) -> None:
         if PyScipModel is None:
-            raise ScipUnavailableError(
-                "PySCIPOpt is not available. Install pyscipopt to use the SCIP backend."
-            )
+            raise ScipUnavailableError("PySCIPOpt is not available. Install pyscipopt to use the SCIP backend.")
         self._name = name
         self._scip = PyScipModel()
         self._vars_by_name: dict[str, Any] = {}
@@ -159,7 +163,7 @@ class _ScipModelCompat:
 
     def _apply_param(self, name: str, value: object) -> None:
         if name in {"OutputFlag", "LogToConsole"}:
-            verbose = 0 if int(value) == 0 else 4
+            verbose = 0 if _coerce_int_param(name, value) == 0 else 4
             self._scip.setParam("display/verblevel", verbose)
             return
         if name == "TimeLimit":
@@ -172,7 +176,7 @@ class _ScipModelCompat:
             self._scip.setParam("parallel/maxnthreads", value)
             return
         if name == "Presolve":
-            max_rounds = -1 if int(value) > 0 else 0
+            max_rounds = -1 if _coerce_int_param(name, value) > 0 else 0
             self._scip.setParam("presolving/maxrounds", max_rounds)
             return
         if name == "NonConvex":
@@ -199,11 +203,16 @@ class _ScipModelCompat:
         vtype: str,
         name: str,
     ) -> _ScipTupleDict:
+        if not index_sets:
+            raise ValueError("addVars requires at least one index set.")
         result = _ScipTupleDict()
         for key_tuple in product(*index_sets):
             rendered_key = ",".join(str(part) for part in key_tuple)
             variable = self.addVar(lb=lb, ub=ub, vtype=vtype, name=f"{name}[{rendered_key}]")
-            result[key_tuple if len(key_tuple) > 1 else key_tuple[0]] = variable
+            if len(key_tuple) == 1:
+                result[key_tuple[0]] = variable
+            else:
+                result[key_tuple] = variable
         return result
 
     def addConstr(self, expr: Any, *, name: str) -> Any:
@@ -352,9 +361,7 @@ def _apply_exact_mtf_assignments_scip(
 
 def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
     if PyScipModel is None or scip_quicksum is None:
-        raise ScipUnavailableError(
-            "PySCIPOpt is not available. Install pyscipopt to use the SCIP backend."
-        )
+        raise ScipUnavailableError("PySCIPOpt is not available. Install pyscipopt to use the SCIP backend.")
 
     with _patched_core_backend():
         return obv_core.build_obv_model(case)

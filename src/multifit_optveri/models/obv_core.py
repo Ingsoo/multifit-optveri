@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Any
+from typing import Any, cast
 
 # This module contains the solver-shared OBV model builder.
 # Backend modules provide a Gurobi-like algebraic API object via the module
@@ -21,8 +21,11 @@ from multifit_optveri.acceleration import (
 from multifit_optveri.experiments import ExperimentCase
 from multifit_optveri.math_utils import ceil_fraction
 from multifit_optveri.models.spec import ObvModelDimensions, derive_obv_dimensions
-gp = None
-GRB = None
+
+# Backend wrappers patch these globals at runtime. Cast to `Any` so static
+# analyzers do not treat every use as an attribute access on `None`.
+gp: Any = cast(Any, None)
+GRB: Any = cast(Any, None)
 GurobiModel = Any
 GurobiVar = Any
 GurobiTupleDict = Any
@@ -84,9 +87,7 @@ def _require_gurobi() -> None:
     """Fail fast when model building is requested without a backend API bound."""
 
     if gp is None or GRB is None:
-        raise BackendApiUnavailableError(
-            "The shared OBV builder was called without an initialized backend API."
-        )
+        raise BackendApiUnavailableError("The shared OBV builder was called without an initialized backend API.")
 
 
 _require_backend_api = _require_gurobi
