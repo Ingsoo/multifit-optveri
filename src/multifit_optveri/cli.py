@@ -20,6 +20,11 @@ def _add_case_filter_arguments(parser: argparse.ArgumentParser) -> None:
         help="Restrict to a single acceleration case.",
     )
     parser.add_argument("--limit", type=int, help="Use only the first N matching cases.")
+    parser.add_argument(
+        "--case-list",
+        type=Path,
+        help="Restrict to case IDs listed one-per-line in a text file.",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -42,6 +47,7 @@ def _filter_cases(
     job: int | None,
     acceleration_case: str | None,
     limit: int | None,
+    case_ids: set[str] | None = None,
 ):
     filtered = [
         case
@@ -49,10 +55,19 @@ def _filter_cases(
         if (machine is None or case.machine_count == machine)
         and (job is None or case.job_count == job)
         and (acceleration_case is None or case.acceleration_case.value == acceleration_case)
+        and (case_ids is None or case.case_id in case_ids)
     ]
     if limit is not None:
         filtered = filtered[:limit]
     return filtered
+
+
+def _load_case_ids(path: Path) -> set[str]:
+    return {
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,17 +77,26 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Loading config: {args.config}", flush=True)
     config = load_experiment_config(args.config)
     print("Enumerating cases...", flush=True)
+    selected_case_ids = _load_case_ids(args.case_list) if args.case_list is not None else None
     selected_acceleration_case = (
         AccelerationCase(args.acceleration_case)
         if args.acceleration_case is not None
         else None
     )
-    filtered_cases = enumerate_cases(
+    enumerated_cases = enumerate_cases(
         config,
         machine=args.machine,
         job=args.job,
         acceleration_case=selected_acceleration_case,
+        limit=None,
+    )
+    filtered_cases = _filter_cases(
+        enumerated_cases,
+        machine=args.machine,
+        job=args.job,
+        acceleration_case=args.acceleration_case,
         limit=args.limit,
+        case_ids=selected_case_ids,
     )
     print(
         f"Enumerated {len(filtered_cases)} case(s) matching CLI filters.",
@@ -96,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
             "job": args.job,
             "acceleration_case": args.acceleration_case,
             "limit": args.limit,
+            "case_list": str(args.case_list) if args.case_list is not None else None,
             "config": str(args.config),
         },
     )

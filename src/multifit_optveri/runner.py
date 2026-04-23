@@ -59,6 +59,7 @@ class RunArtifacts:
     cases_dir: Path
     summary_csv_path: Path
     summary_jsonl_path: Path
+    time_limit_case_ids_path: Path
     overview_json_path: Path
     manifest_json_path: Path
     latest_run_path: Path
@@ -262,6 +263,7 @@ def create_run_artifacts(cases: list[ExperimentCase]) -> RunArtifacts:
         cases_dir=cases_dir,
         summary_csv_path=run_dir / "summary.csv",
         summary_jsonl_path=run_dir / "summary.jsonl",
+        time_limit_case_ids_path=run_dir / "time_limit_case_ids.txt",
         overview_json_path=run_dir / "overview.json",
         manifest_json_path=run_dir / "manifest.json",
         latest_run_path=experiment_dir / "latest_run.txt",
@@ -315,6 +317,11 @@ class RunRecorder:
             _result_csv_row(result),
         )
         _append_jsonl(self.artifacts.summary_jsonl_path, _result_summary_payload(result))
+        if result.status == "TIME_LIMIT":
+            self.artifacts.time_limit_case_ids_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.artifacts.time_limit_case_ids_path.open("a", encoding="utf-8") as handle:
+                handle.write(result.case_id)
+                handle.write("\n")
         self._write_overview()
 
     def finish(self) -> None:
@@ -328,6 +335,7 @@ class RunRecorder:
         status_counts = Counter(result.status for result in self.results)
         verification_counts = Counter(result.verification_result for result in self.results)
         case_counts = Counter(result.acceleration_case for result in self.results)
+        time_limit_case_count = sum(1 for result in self.results if result.status == "TIME_LIMIT")
         total_runtime = sum(result.runtime_seconds for result in self.results if result.runtime_seconds is not None)
         _write_json(
             self.artifacts.overview_json_path,
@@ -338,6 +346,8 @@ class RunRecorder:
                 "status_counts": dict(status_counts),
                 "verification_result_counts": dict(verification_counts),
                 "acceleration_case_counts": dict(case_counts),
+                "time_limit_case_count": time_limit_case_count,
+                "time_limit_case_ids": str(self.artifacts.time_limit_case_ids_path),
                 "total_runtime_seconds": total_runtime,
                 "summary_csv": str(self.artifacts.summary_csv_path),
                 "summary_jsonl": str(self.artifacts.summary_jsonl_path),

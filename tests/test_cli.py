@@ -3,6 +3,7 @@ from __future__ import annotations
 from fractions import Fraction
 from io import StringIO
 from pathlib import Path
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 import contextlib
@@ -10,7 +11,7 @@ import tempfile
 import unittest
 
 from multifit_optveri.acceleration import AccelerationCase
-from multifit_optveri.cli import _build_parser, _filter_cases, main
+from multifit_optveri.cli import _build_parser, _filter_cases, _load_case_ids, main
 from multifit_optveri.config import ExperimentConfig, SolverConfig
 from multifit_optveri.experiments import ExperimentCase
 
@@ -45,6 +46,13 @@ class CliTests(unittest.TestCase):
         filtered = _filter_cases(cases, machine=8, job=24, acceleration_case="case_1", limit=1)
         self.assertEqual(len(filtered), 1)
 
+    def test_load_case_ids_ignores_comments_and_blanks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case_list = Path(tmpdir) / "cases.txt"
+            case_list.write_text("# comment\ncase_a\n\n case_b \n", encoding="utf-8")
+
+            self.assertEqual(_load_case_ids(case_list), {"case_a", "case_b"})
+
     def test_main_plan_prints_case_plan(self) -> None:
         output = StringIO()
         with contextlib.redirect_stdout(output):
@@ -72,10 +80,32 @@ class CliTests(unittest.TestCase):
             machine=8,
             job=None,
             acceleration_case=None,
-            limit=1,
+            limit=None,
         )
         self.assertIn("Total cases: 1", output.getvalue())
         self.assertIn("m=8", output.getvalue())
+
+    def test_main_plan_filters_with_case_list(self) -> None:
+        case_a = _sample_case("a")
+        case_b = replace(case_a, job_count=25)
+        output = StringIO()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case_list = Path(tmpdir) / "cases.txt"
+            case_list.write_text(f"{case_a.case_id}\n", encoding="utf-8")
+            with patch(
+                "multifit_optveri.cli.load_experiment_config",
+                return_value=SimpleNamespace(),
+            ), patch(
+                "multifit_optveri.cli.enumerate_cases",
+                return_value=[case_a, case_b],
+            ), contextlib.redirect_stdout(output):
+                exit_code = main(["plan", "--config", "dummy.toml", "--case-list", str(case_list)])
+
+        self.assertEqual(exit_code, 0)
+        rendered = output.getvalue()
+        self.assertIn(case_a.case_id, rendered)
+        self.assertNotIn(case_b.case_id, rendered)
 
     def test_main_run_uses_recorder_flow(self) -> None:
         config = ExperimentConfig(

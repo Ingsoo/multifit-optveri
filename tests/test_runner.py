@@ -205,6 +205,7 @@ class RunnerTests(unittest.TestCase):
 
             self.assertTrue(artifacts.summary_csv_path.exists())
             self.assertTrue(artifacts.summary_jsonl_path.exists())
+            self.assertFalse(artifacts.time_limit_case_ids_path.exists())
             self.assertTrue(artifacts.overview_json_path.exists())
             self.assertTrue(artifacts.manifest_json_path.exists())
             summary_csv = artifacts.summary_csv_path.read_text(encoding="utf-8")
@@ -218,6 +219,30 @@ class RunnerTests(unittest.TestCase):
             self.assertNotIn("\"output_dir\":", summary_jsonl)
             self.assertIn("\"completed_case_count\": 1", artifacts.overview_json_path.read_text(encoding="utf-8"))
             self.assertIn("\"verification_result_counts\": {", artifacts.overview_json_path.read_text(encoding="utf-8"))
+
+    def test_run_recorder_writes_time_limit_case_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            case = _sample_case(Path(tmpdir))
+            artifacts = create_run_artifacts([case])
+            recorder = RunRecorder(artifacts=artifacts, cases=[case], cli_filters={"machine": 8})
+            result = SolveResult(
+                **{
+                    **_sample_result(artifacts.cases_dir / "case_a").__dict__,
+                    "case_id": "case_timeout",
+                    "verification_result": "UNKNOWN",
+                    "status": "TIME_LIMIT",
+                }
+            )
+
+            recorder.record(result)
+            recorder.finish()
+
+            self.assertEqual(
+                artifacts.time_limit_case_ids_path.read_text(encoding="utf-8").splitlines(),
+                ["case_timeout"],
+            )
+            overview_text = artifacts.overview_json_path.read_text(encoding="utf-8")
+            self.assertIn("\"time_limit_case_count\": 1", overview_text)
 
     def test_run_cases_uses_run_recorder_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
