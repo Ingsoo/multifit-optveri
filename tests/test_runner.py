@@ -106,20 +106,34 @@ class RunnerTests(unittest.TestCase):
 
     def test_verification_result_matches_algorithm_rule(self) -> None:
         self.assertEqual(
-            _verification_result(status="INFEASIBLE", objective_value=None, target_ratio="20/17"),
+            _verification_result(status="INFEASIBLE", objective_value=None, objective_bound=None, target_ratio="20/17"),
             "VERIFIED",
         )
         self.assertEqual(
-            _verification_result(status="OPTIMAL", objective_value=20 / 17, target_ratio="20/17"),
+            _verification_result(
+                status="OPTIMAL",
+                objective_value=20 / 17,
+                objective_bound=20 / 17,
+                target_ratio="20/17",
+            ),
             "VERIFIED",
         )
         self.assertEqual(
-            _verification_result(status="OPTIMAL", objective_value=1.2, target_ratio="20/17"),
+            _verification_result(status="OPTIMAL", objective_value=1.2, objective_bound=1.2, target_ratio="20/17"),
             "NOT_VERIFIED",
         )
         self.assertEqual(
-            _verification_result(status="TIME_LIMIT", objective_value=None, target_ratio="20/17"),
+            _verification_result(status="TIME_LIMIT", objective_value=None, objective_bound=None, target_ratio="20/17"),
             "UNKNOWN",
+        )
+        self.assertEqual(
+            _verification_result(
+                status="USER_OBJ_LIMIT",
+                objective_value=None,
+                objective_bound=20 / 17,
+                target_ratio="20/17",
+            ),
+            "VERIFIED",
         )
 
     def test_profile_format_helpers(self) -> None:

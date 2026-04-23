@@ -179,6 +179,7 @@ def _verification_result(
     *,
     status: str,
     objective_value: float | None,
+    objective_bound: float | None,
     target_ratio: str,
 ) -> str:
     """Classify one solved branch as verified/not-verified for the paper claim."""
@@ -190,6 +191,8 @@ def _verification_result(
         if objective_value <= target:
             return "VERIFIED"
         return "NOT_VERIFIED"
+    if status == "USER_OBJ_LIMIT" and objective_bound is not None and objective_bound <= target:
+        return "VERIFIED"
     return "UNKNOWN"
 
 
@@ -364,6 +367,7 @@ def run_case(case: ExperimentCase) -> SolveResult:
         verification_result=_verification_result(
             status=outcome.status,
             objective_value=outcome.objective_value,
+            objective_bound=outcome.objective_bound,
             target_ratio=format_ratio(case.target_ratio),
         ),
         status=outcome.status,

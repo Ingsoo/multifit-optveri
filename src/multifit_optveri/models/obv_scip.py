@@ -90,6 +90,16 @@ def _get_scip_pointer(model: Any) -> ctypes.c_void_p:
     return ctypes.c_void_p(pointer)
 
 
+def _exact_target_state_key(model: Any) -> int:
+    try:
+        pointer = _get_scip_pointer(model).value
+    except ScipUnavailableError:
+        return id(model)
+    if pointer is None:
+        return id(model)
+    return int(pointer)
+
+
 def _parse_exact_rational_text(text: str) -> Fraction | None:
     normalized = text.strip().lower()
     if normalized in {"-infinity", "-inf"}:
@@ -152,10 +162,10 @@ class _ExactDualBoundStopEventhdlr(_EventhdlrBase):  # type: ignore[misc]
         dual_bound = _exact_dual_bound_fraction(self.model)
         if dual_bound is None:
             return
-        if dual_bound < self.target_ratio:
+        if dual_bound > self.target_ratio:
             return
         self.hit = True
-        state = _EXACT_TARGET_STOP_STATE.setdefault(id(self.model), {})
+        state = _EXACT_TARGET_STOP_STATE.setdefault(_exact_target_state_key(self.model), {})
         state["reached"] = True
         state["bound"] = dual_bound
         self.model.interruptSolve()
@@ -557,7 +567,7 @@ def install_exact_target_stop_handler(model: Any, case: ExperimentCase) -> None:
         "multifit_exact_target_stop",
         "Interrupt exact SCIP once the exact dual bound reaches the target ratio.",
     )
-    _EXACT_TARGET_STOP_STATE[id(model)] = {
+    _EXACT_TARGET_STOP_STATE[_exact_target_state_key(model)] = {
         "handler": handler,
         "reached": False,
         "bound": None,
@@ -565,14 +575,14 @@ def install_exact_target_stop_handler(model: Any, case: ExperimentCase) -> None:
 
 
 def exact_target_stop_reached(model: Any) -> bool:
-    state = _EXACT_TARGET_STOP_STATE.get(id(model))
+    state = _EXACT_TARGET_STOP_STATE.get(_exact_target_state_key(model))
     if state is not None:
         return bool(state.get("reached", False))
     return bool(getattr(model, "_multifit_exact_target_reached", False))
 
 
 def clear_exact_target_stop_state(model: Any) -> None:
-    _EXACT_TARGET_STOP_STATE.pop(id(model), None)
+    _EXACT_TARGET_STOP_STATE.pop(_exact_target_state_key(model), None)
 
 
 def read_exact_problem(problem_path: str, case: ExperimentCase) -> Any:
