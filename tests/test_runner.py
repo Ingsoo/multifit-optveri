@@ -26,6 +26,7 @@ from multifit_optveri.runner import (
     run_case,
     run_cases,
 )
+from multifit_optveri.solver_backends import BackendRunResult, ConstraintSummary, SolverOutcome
 
 
 def _sample_case(output_root: Path) -> ExperimentCase:
@@ -157,29 +158,11 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(_format_opt_profile(profiled_case), "(8,0,0)")
 
     def test_extract_optimal_p_values_desc_only_for_optimal_status(self) -> None:
-        fake_grb = SimpleNamespace(OPTIMAL=2)
-
-        class _Var:
-            def __init__(self, value: float) -> None:
-                self.X = value
-
-        class _Model:
-            Status = 2
-
-            def getVarByName(self, name: str):
-                values = {
-                    "p[1]": _Var(0.499999999999),
-                    "p[2]": _Var(0.333333333333),
-                    "p[3]": _Var(0.2),
-                }
-                return values.get(name)
-
-        class _NonOptimalModel(_Model):
-            Status = 3
-
-        with patch("multifit_optveri.runner.GRB", fake_grb):
-            self.assertEqual(_extract_optimal_p_values_desc(_Model(), 3), "[15, 10, 6]")
-            self.assertIsNone(_extract_optimal_p_values_desc(_NonOptimalModel(), 3))
+        self.assertEqual(
+            _extract_optimal_p_values_desc((0.499999999999, 0.333333333333, 0.2)),
+            "[15, 10, 6]",
+        )
+        self.assertIsNone(_extract_optimal_p_values_desc(None))
 
     def test_allocate_run_dir_adds_suffix_when_needed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -257,59 +240,31 @@ class RunnerTests(unittest.TestCase):
                 write_case_dirs=False,
             )
 
-            class _Var:
-                def __init__(self, value: float) -> None:
-                    self.X = value
-
-            class _FakeModel:
-                Status = 2
-                SolCount = 1
-                ObjVal = 1.0
-                ObjBound = 1.0
-                Runtime = 0.5
-                NodeCount = 0.0
-                MIPGap = 0.0
-                NumVars = 10
-                NumConstrs = 8
-                NumQConstrs = 1
-                NumGenConstrs = 0
-
-                def optimize(self) -> None:
-                    return None
-
-                def getVarByName(self, name: str):
-                    values = {
-                        "p[1]": _Var(0.5),
-                        "p[2]": _Var(0.333333333333),
-                        "p[3]": _Var(0.166666666667),
-                    }
-                    return values.get(name)
-
-            fake_built_model = SimpleNamespace(
-                model=_FakeModel(),
+            backend_result = BackendRunResult(
                 dimensions=SimpleNamespace(
                     total_variables=10,
                     total_constraints=9,
                     variable_counts={"p": 3},
                     constraint_counts={"linear": 8, "quadratic": 1},
                 ),
+                constraint_summary=ConstraintSummary(
+                    total_constraints=9,
+                    linear_constraints=8,
+                    quadratic_constraints=1,
+                    general_constraints=0,
+                ),
+                outcome=SolverOutcome(
+                    status="OPTIMAL",
+                    objective_value=1.0,
+                    objective_bound=1.0,
+                    runtime_seconds=0.5,
+                    node_count=0.0,
+                    mip_gap=0.0,
+                    optimal_p_values=(0.5, 0.333333333333, 0.166666666667),
+                ),
             )
 
-            with patch(
-                "multifit_optveri.runner.GRB",
-                SimpleNamespace(
-                    OPTIMAL=2,
-                    INFEASIBLE=3,
-                    TIME_LIMIT=9,
-                    INTERRUPTED=11,
-                    INF_OR_UNBD=4,
-                    UNBOUNDED=5,
-                    USER_OBJ_LIMIT=15,
-                ),
-            ), patch(
-                "multifit_optveri.runner.build_obv_model",
-                return_value=fake_built_model,
-            ):
+            with patch("multifit_optveri.runner.solve_case_with_backend", return_value=backend_result):
                 result = run_case(case)
 
             self.assertEqual(result.status, "OPTIMAL")

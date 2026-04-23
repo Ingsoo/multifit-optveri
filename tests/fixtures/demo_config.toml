@@ -11,6 +11,7 @@ write_case_dirs = true
 enforce_target_lower_bound = true
 
 [solver]
+backend = "gurobi"
 time_limit_seconds = 60.0
 mip_gap = 0.01
 threads = 2

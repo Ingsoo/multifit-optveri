@@ -10,8 +10,10 @@ from multifit_optveri.branching import FallbackStarts, MtfProfile, OptProfile
 from multifit_optveri.config import SolverConfig, load_experiment_config
 from multifit_optveri.experiments import ExperimentCase, enumerate_cases
 from multifit_optveri.models import obv
+from multifit_optveri.models import obv_gurobi
 from multifit_optveri.models.obv import (
     GurobiUnavailableError,
+    ScipUnavailableError,
     _as_float,
     _build_mtf_profile_layout,
     _build_opt_machine_groups,
@@ -186,11 +188,29 @@ class ObvHelperTests(unittest.TestCase):
         )
 
     def test_gurobi_guards_raise_without_solver(self) -> None:
-        with patch.object(obv, "gp", None), patch.object(obv, "GRB", None):
+        with patch.object(obv_gurobi, "gp", None), patch.object(obv_gurobi, "GRB", None):
             with self.assertRaises(GurobiUnavailableError):
                 _require_gurobi()
             with self.assertRaises(GurobiUnavailableError):
                 build_obv_model(_sample_case())
+
+    def test_scip_backend_raises_without_pyscipopt(self) -> None:
+        case = ExperimentCase(
+            experiment_name="demo",
+            machine_count=8,
+            job_count=24,
+            acceleration_case=AccelerationCase.CASE_1,
+            ell=9,
+            mtf_profile=None,
+            opt_profile=None,
+            target_ratio=Fraction(20, 17),
+            output_root=Path("results"),
+            write_lp=False,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(backend="scip"),
+        )
+        with self.assertRaises(ScipUnavailableError):
+            build_obv_model(case)
 
     def test_processing_time_bounds_are_consistent_for_all_m8_branches(self) -> None:
         config = load_experiment_config("configs/experiments/paper_base.toml")

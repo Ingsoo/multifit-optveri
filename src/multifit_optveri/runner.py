@@ -5,7 +5,6 @@ from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
 import csv
 import json
 
@@ -18,39 +17,15 @@ from multifit_optveri.math_utils import (
     parse_ratio,
 )
 from multifit_optveri.models.obv import (
-    BuiltObvModel,
     _build_exact_mtf_assignment,
     _build_mtf_profile_layout,
-    build_obv_model,
 )
-
-if TYPE_CHECKING:
-    from gurobipy import Model as GurobiModel
-else:
-    GurobiModel = Any
+from multifit_optveri.solver_backends import solve_case_with_backend
 
 try:
     from gurobipy import GRB
 except ImportError:  # pragma: no cover - exercised only when Gurobi is missing
     GRB = None
-
-
-class _ConstraintCountModel(Protocol):
-    NumConstrs: int
-    NumQConstrs: int
-    NumGenConstrs: int
-
-
-class _SolutionVar(Protocol):
-    X: float
-
-
-class _OptimalValueModel(Protocol):
-    Status: int
-
-    def getVarByName(self, name: str) -> _SolutionVar | None:
-        ...
-
 
 @dataclass(frozen=True)
 class SolveResult:
@@ -101,11 +76,6 @@ def _status_name(status_code: int) -> str:
         GRB.UNBOUNDED: "UNBOUNDED",
         GRB.USER_OBJ_LIMIT: "USER_OBJ_LIMIT",
     }.get(status_code, str(status_code))
-
-
-def _model_constraint_total(model: _ConstraintCountModel) -> int:
-    return int(model.NumConstrs) + int(model.NumQConstrs) + int(model.NumGenConstrs)
-
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -263,33 +233,15 @@ def _format_mtf_assignment(case: ExperimentCase) -> dict[str, list[int]] | None:
     }
 
 
-def _extract_optimal_p_values_desc(
-    model: _OptimalValueModel, job_count: int
-) -> str | None:
-    if GRB is None or model.Status != GRB.OPTIMAL:
+def _extract_optimal_p_values_desc(values: tuple[float, ...] | None) -> str | None:
+    if values is None:
         return None
-
-    values: list[float] = []
-    for job_index in range(1, job_count + 1):
-        variable = model.getVarByName(f"p[{job_index}]")
-        if variable is None:
-            return None
-        values.append(float(variable.X))
     return format_scaled_rational_values(values)
 
 
-def _extract_optimal_p_values_desc_exact(
-    model: _OptimalValueModel, job_count: int
-) -> str | None:
-    if GRB is None or model.Status != GRB.OPTIMAL:
+def _extract_optimal_p_values_desc_exact(values: tuple[float, ...] | None) -> str | None:
+    if values is None:
         return None
-
-    values: list[float] = []
-    for job_index in range(1, job_count + 1):
-        variable = model.getVarByName(f"p[{job_index}]")
-        if variable is None:
-            return None
-        values.append(float(variable.X))
     return format_sorted_numeric_values(values)
 
 
@@ -394,21 +346,10 @@ def run_case(case: ExperimentCase) -> SolveResult:
     if case.write_lp and not case.write_case_dirs:
         raise ValueError("write_lp requires write_case_dirs to be enabled for each case.")
 
-    built_model: BuiltObvModel = build_obv_model(case)
-    model: GurobiModel = built_model.model
-
-    if case.write_case_dirs:
-        case.output_dir.mkdir(parents=True, exist_ok=True)
-    if case.write_lp:
-        model.write(str(case.output_dir / "model.lp"))
-
-    model.optimize()
-
-    has_solution = model.SolCount > 0
-    objective_value = _finite_or_none(float(model.ObjVal) if has_solution else None)
-    objective_bound = _finite_or_none(float(model.ObjBound) if hasattr(model, "ObjBound") else None)
-    optimal_p_values_desc_exact = _extract_optimal_p_values_desc_exact(model, case.job_count)
-    optimal_p_values_desc = _extract_optimal_p_values_desc(model, case.job_count)
+    backend_result = solve_case_with_backend(case)
+    outcome = backend_result.outcome
+    optimal_p_values_desc_exact = _extract_optimal_p_values_desc_exact(outcome.optimal_p_values)
+    optimal_p_values_desc = _extract_optimal_p_values_desc(outcome.optimal_p_values)
     result = SolveResult(
         experiment_name=case.experiment_name,
         case_id=case.case_id,
@@ -421,16 +362,16 @@ def run_case(case: ExperimentCase) -> SolveResult:
         opt_profile=_format_opt_profile(case),
         target_ratio=format_ratio(case.target_ratio),
         verification_result=_verification_result(
-            status=_status_name(model.Status),
-            objective_value=objective_value,
+            status=outcome.status,
+            objective_value=outcome.objective_value,
             target_ratio=format_ratio(case.target_ratio),
         ),
-        status=_status_name(model.Status),
-        objective_value=objective_value,
-        objective_bound=objective_bound,
-        runtime_seconds=_finite_or_none(float(model.Runtime) if hasattr(model, "Runtime") else None),
-        node_count=_finite_or_none(float(model.NodeCount) if hasattr(model, "NodeCount") else None),
-        mip_gap=_finite_or_none(float(model.MIPGap) if has_solution and hasattr(model, "MIPGap") else None),
+        status=outcome.status,
+        objective_value=outcome.objective_value,
+        objective_bound=outcome.objective_bound,
+        runtime_seconds=outcome.runtime_seconds,
+        node_count=outcome.node_count,
+        mip_gap=outcome.mip_gap,
         optimal_p_values_desc_exact=optimal_p_values_desc_exact,
         optimal_p_values_desc=optimal_p_values_desc,
         output_dir=str(case.output_dir),
@@ -446,15 +387,15 @@ def run_case(case: ExperimentCase) -> SolveResult:
         "mtf_assignment": _format_mtf_assignment(case),
     }
     summary_payload["dimensions"] = {
-        "total_variables": int(model.NumVars) if hasattr(model, "NumVars") else built_model.dimensions.total_variables,
-        "total_constraints": _model_constraint_total(model),
-        "linear_constraints": int(model.NumConstrs),
-        "quadratic_constraints": int(model.NumQConstrs),
-        "general_constraints": int(model.NumGenConstrs),
-        "spec_total_variables": built_model.dimensions.total_variables,
-        "spec_total_constraints": built_model.dimensions.total_constraints,
-        "variable_counts": built_model.dimensions.variable_counts,
-        "constraint_counts": built_model.dimensions.constraint_counts,
+        "total_variables": backend_result.dimensions.total_variables,
+        "total_constraints": backend_result.constraint_summary.total_constraints,
+        "linear_constraints": backend_result.constraint_summary.linear_constraints,
+        "quadratic_constraints": backend_result.constraint_summary.quadratic_constraints,
+        "general_constraints": backend_result.constraint_summary.general_constraints,
+        "spec_total_variables": backend_result.dimensions.total_variables,
+        "spec_total_constraints": backend_result.dimensions.total_constraints,
+        "variable_counts": backend_result.dimensions.variable_counts,
+        "constraint_counts": backend_result.dimensions.constraint_counts,
     }
     if case.write_case_dirs:
         _write_json(case.output_dir / "summary.json", summary_payload)

@@ -28,6 +28,7 @@ class ConfigTests(unittest.TestCase):
             ),
         )
         self.assertEqual(config.solver.threads, 2)
+        self.assertEqual(config.solver.backend, "gurobi")
         self.assertEqual(config.output_root, Path("results"))
         self.assertTrue(config.write_case_dirs)
 
@@ -66,6 +67,10 @@ enforce_target_lower_bound = true
                 solver=SolverConfig(),
                 write_case_dirs=False,
             )
+
+    def test_solver_config_rejects_unknown_backend(self) -> None:
+        with self.assertRaises(ValueError):
+            SolverConfig(backend="cbc")
 
 
 if __name__ == "__main__":

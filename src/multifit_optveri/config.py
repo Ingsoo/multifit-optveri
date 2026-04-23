@@ -8,9 +8,12 @@ import tomllib
 from multifit_optveri.acceleration import AccelerationCase, parse_acceleration_case
 from multifit_optveri.math_utils import parse_ratio
 
+SUPPORTED_SOLVER_BACKENDS = ("gurobi", "scip")
+
 
 @dataclass(frozen=True)
 class SolverConfig:
+    backend: str = "gurobi"
     time_limit_seconds: float | None = None
     mip_gap: float | None = None
     threads: int | None = None
@@ -18,6 +21,17 @@ class SolverConfig:
     legacy_best_bd_stop_at_target: bool = True
     non_convex: int = 2
     output_flag: int = 1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.backend, str):
+            raise TypeError("solver backend must be a string.")
+        normalized_backend = self.backend.strip().lower()
+        if normalized_backend not in SUPPORTED_SOLVER_BACKENDS:
+            raise ValueError(
+                f"Unsupported solver backend {self.backend!r}. "
+                f"Expected one of {SUPPORTED_SOLVER_BACKENDS}."
+            )
+        object.__setattr__(self, "backend", normalized_backend)
 
 
 @dataclass(frozen=True)
@@ -59,6 +73,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     solver = raw.get("solver", {})
 
     solver_config = SolverConfig(
+        backend=solver.get("backend", "gurobi"),
         time_limit_seconds=solver.get("time_limit_seconds"),
         mip_gap=solver.get("mip_gap"),
         threads=solver.get("threads"),
