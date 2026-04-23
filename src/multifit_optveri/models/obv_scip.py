@@ -101,29 +101,23 @@ def _exact_dual_bound_fraction(model: Any) -> Fraction:
 
     try:
         library.SCIPgetDualboundExact.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ScipRational)]
-        library.SCIPgetDualboundExact.restype = ctypes.c_int
-        _raise_for_scip_error(
-            library.SCIPgetDualboundExact(scip_pointer, rational),
-            func_name="SCIPgetDualboundExact",
-        )
+        library.SCIPgetDualboundExact.restype = None
+        library.SCIPgetDualboundExact(scip_pointer, rational)
 
         library.SCIPrationalStrLen.argtypes = [ctypes.POINTER(_ScipRational)]
-        library.SCIPrationalStrLen.restype = ctypes.c_size_t
+        library.SCIPrationalStrLen.restype = ctypes.c_int
         buffer_size = int(library.SCIPrationalStrLen(rational)) + 1
         text_buffer = ctypes.create_string_buffer(buffer_size)
 
-        library.SCIPrationalToString.argtypes = [ctypes.POINTER(_ScipRational), ctypes.c_char_p]
+        library.SCIPrationalToString.argtypes = [ctypes.POINTER(_ScipRational), ctypes.c_char_p, ctypes.c_int]
         library.SCIPrationalToString.restype = ctypes.c_int
-        _raise_for_scip_error(
-            library.SCIPrationalToString(rational, text_buffer),
-            func_name="SCIPrationalToString",
-        )
+        library.SCIPrationalToString(rational, text_buffer, buffer_size)
         rendered = text_buffer.value.decode("ascii").strip()
         return Fraction(rendered)
     finally:
         library.SCIPrationalFree.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
-        library.SCIPrationalFree.restype = ctypes.c_int
-        _raise_for_scip_error(library.SCIPrationalFree(ctypes.byref(rational)), func_name="SCIPrationalFree")
+        library.SCIPrationalFree.restype = None
+        library.SCIPrationalFree(ctypes.byref(rational))
 
 
 _EventhdlrBase = Eventhdlr if Eventhdlr is not None else object
