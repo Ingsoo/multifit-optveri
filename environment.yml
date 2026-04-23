@@ -6,4 +6,4 @@ dependencies:
   - pip
   - setuptools>=69
   - pip:
-      - -e .[gurobi]
+      - -e .[gurobi,scip]

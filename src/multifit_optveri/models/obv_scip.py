@@ -100,6 +100,14 @@ def _unwrap_expr(value: Any) -> Any:
     return value
 
 
+def _scip_quicksum_compat(values) -> Any:
+    if scip_quicksum is None:
+        raise ScipUnavailableError(
+            "PySCIPOpt is not available. Install pyscipopt to use the SCIP backend."
+        )
+    return scip_quicksum(_unwrap_expr(value) for value in values)
+
+
 class _ScipTupleDict(dict):
     """Small dict-like stand in for Gurobi tupledict."""
 
@@ -142,7 +150,7 @@ class _ScipModelCompat:
             )
         self._name = name
         self._scip = PyScipModel()
-        self._vars_by_name: dict[str, _ScipVarCompat] = {}
+        self._vars_by_name: dict[str, Any] = {}
         self._constraints_by_name: dict[str, Any] = {}
         self.Params = _ScipParamsCompat(self)
         if env is not None:
@@ -178,11 +186,10 @@ class _ScipModelCompat:
         ub: float | None = None,
         vtype: str,
         name: str,
-    ) -> _ScipVarCompat:
+    ) -> Any:
         var = self._scip.addVar(lb=lb, ub=ub, vtype=vtype, name=name)
-        wrapped = _ScipVarCompat(self, var)
-        self._vars_by_name[name] = wrapped
-        return wrapped
+        self._vars_by_name[name] = var
+        return var
 
     def addVars(
         self,
@@ -244,7 +251,10 @@ class _ScipModelCompat:
         self._scip.freeProb()
 
     def getVarByName(self, name: str) -> _ScipVarCompat | None:
-        return self._vars_by_name.get(name)
+        var = self._vars_by_name.get(name)
+        if var is None:
+            return None
+        return _ScipVarCompat(self, var)
 
     @property
     def Status(self) -> str:
@@ -300,20 +310,44 @@ class _ScipGrbCompat:
 class _ScipGpCompat:
     Env = _ScipEnvCompat
     Model = _ScipModelCompat
-    quicksum = staticmethod(scip_quicksum)
+    quicksum = staticmethod(_scip_quicksum_compat)
 
 
 @contextmanager
 def _patched_gurobi_module():
     original_gp = obv_gurobi.gp
     original_grb = obv_gurobi.GRB
+    original_exact_mtf_assignments = obv_gurobi._apply_exact_mtf_assignments
     try:
         obv_gurobi.gp = _ScipGpCompat()
         obv_gurobi.GRB = _ScipGrbCompat
+        obv_gurobi._apply_exact_mtf_assignments = _apply_exact_mtf_assignments_scip
         yield
     finally:
         obv_gurobi.gp = original_gp
         obv_gurobi.GRB = original_grb
+        obv_gurobi._apply_exact_mtf_assignments = original_exact_mtf_assignments
+
+
+def _apply_exact_mtf_assignments_scip(
+    model: _ScipModelCompat,
+    case: ExperimentCase,
+    q: _ScipTupleDict,
+    layout: obv_gurobi.MtfProfileLayout,
+) -> dict[int, tuple[int, ...]]:
+    assignment = obv_gurobi._build_exact_mtf_assignment(case, layout)
+    assigned_machine_by_job = {
+        job_index: machine_index for machine_index, machine_jobs in assignment.items() for job_index in machine_jobs
+    }
+    if len(assigned_machine_by_job) != case.job_count - 1:
+        raise ValueError("Exact MTF assignment must cover each truncated job exactly once.")
+    for job_index in range(1, case.job_count):
+        assigned_machine = assigned_machine_by_job[job_index]
+        for machine_index in range(1, case.machine_count + 1):
+            value = 1.0 if machine_index == assigned_machine else 0.0
+            model._scip.chgVarLb(q[machine_index, job_index], value)
+            model._scip.chgVarUb(q[machine_index, job_index], value)
+    return assignment
 
 
 def build_obv_model(case: ExperimentCase) -> BuiltObvModel:

@@ -11,6 +11,7 @@ from multifit_optveri.config import SolverConfig, load_experiment_config
 from multifit_optveri.experiments import ExperimentCase, enumerate_cases
 from multifit_optveri.models import obv
 from multifit_optveri.models import obv_gurobi
+from multifit_optveri.models import obv_scip
 from multifit_optveri.models.obv import (
     GurobiUnavailableError,
     ScipUnavailableError,
@@ -211,6 +212,32 @@ class ObvHelperTests(unittest.TestCase):
         )
         with self.assertRaises(ScipUnavailableError):
             build_obv_model(case)
+
+    @unittest.skipIf(obv_scip.PyScipModel is None, "pyscipopt is unavailable")
+    def test_scip_backend_builds_base_case(self) -> None:
+        case = ExperimentCase(
+            experiment_name="demo",
+            machine_count=8,
+            job_count=24,
+            acceleration_case=AccelerationCase.CASE_1,
+            ell=9,
+            mtf_profile=None,
+            opt_profile=None,
+            target_ratio=Fraction(20, 17),
+            output_root=Path("results"),
+            write_lp=False,
+            enforce_target_lower_bound=True,
+            solver=SolverConfig(backend="scip", output_flag=0, time_limit_seconds=1),
+        )
+        built = build_obv_model(case)
+
+        try:
+            self.assertEqual(built.model.NumVars, built.dimensions.total_variables)
+            self.assertGreater(built.model.NumConstrs, 0)
+            self.assertIsNotNone(built.model.getVarByName("p[1]"))
+            self.assertIsNotNone(built.model.getVarByName("Z"))
+        finally:
+            built.model.dispose()
 
     def test_processing_time_bounds_are_consistent_for_all_m8_branches(self) -> None:
         config = load_experiment_config("configs/experiments/paper_base.toml")

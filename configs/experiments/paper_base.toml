@@ -11,7 +11,7 @@ write_case_dirs = false
 enforce_target_lower_bound = true
 
 [solver]
-backend = "gurobi"
+backend = "SCIP"
 mip_gap = 0.0
 threads = 0
 presolve = 1
