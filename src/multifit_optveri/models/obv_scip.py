@@ -100,16 +100,7 @@ def _exact_target_state_key(model: Any) -> int:
     return int(pointer)
 
 
-def _parse_exact_rational_text(text: str) -> Fraction | None:
-    normalized = text.strip().lower()
-    if normalized in {"-infinity", "-inf"}:
-        return None
-    if normalized in {"infinity", "+infinity", "inf", "+inf"}:
-        raise ScipUnavailableError("Encountered an unexpected positive infinite exact dual bound.")
-    return Fraction(text)
-
-
-def _exact_dual_bound_fraction(model: Any) -> Fraction | None:
+def _with_exact_dual_bound(model: Any, callback) -> Any:
     library = _load_scip_library()
     scip_pointer = _get_scip_pointer(model)
 
@@ -122,21 +113,39 @@ def _exact_dual_bound_fraction(model: Any) -> Fraction | None:
         library.SCIPgetDualboundExact.argtypes = [ctypes.c_void_p, ctypes.POINTER(_ScipRational)]
         library.SCIPgetDualboundExact.restype = None
         library.SCIPgetDualboundExact(scip_pointer, rational)
-
-        library.SCIPrationalStrLen.argtypes = [ctypes.POINTER(_ScipRational)]
-        library.SCIPrationalStrLen.restype = ctypes.c_int
-        buffer_size = int(library.SCIPrationalStrLen(rational)) + 1
-        text_buffer = ctypes.create_string_buffer(buffer_size)
-
-        library.SCIPrationalToString.argtypes = [ctypes.POINTER(_ScipRational), ctypes.c_char_p, ctypes.c_int]
-        library.SCIPrationalToString.restype = ctypes.c_int
-        library.SCIPrationalToString(rational, text_buffer, buffer_size)
-        rendered = text_buffer.value.decode("ascii").strip()
-        return _parse_exact_rational_text(rendered)
+        return callback(library, rational)
     finally:
         library.SCIPrationalFree.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
         library.SCIPrationalFree.restype = None
         library.SCIPrationalFree(ctypes.byref(rational))
+
+
+def _exact_dual_bound_reaches_target(model: Any, target_ratio: Fraction) -> bool:
+    def _compare(library: ctypes.CDLL, dual_bound: ctypes.POINTER(_ScipRational)) -> bool:
+        library.SCIPrationalIsNegInfinity.argtypes = [ctypes.POINTER(_ScipRational)]
+        library.SCIPrationalIsNegInfinity.restype = ctypes.c_int
+        if bool(library.SCIPrationalIsNegInfinity(dual_bound)):
+            return False
+
+        target = ctypes.POINTER(_ScipRational)()
+        library.SCIPrationalCreate.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
+        library.SCIPrationalCreate.restype = ctypes.c_int
+        _raise_for_scip_error(library.SCIPrationalCreate(ctypes.byref(target)), func_name="SCIPrationalCreate")
+
+        try:
+            library.SCIPrationalSetFraction.argtypes = [ctypes.POINTER(_ScipRational), ctypes.c_longlong, ctypes.c_longlong]
+            library.SCIPrationalSetFraction.restype = None
+            library.SCIPrationalSetFraction(target, target_ratio.numerator, target_ratio.denominator)
+
+            library.SCIPrationalIsLE.argtypes = [ctypes.POINTER(_ScipRational), ctypes.POINTER(_ScipRational)]
+            library.SCIPrationalIsLE.restype = ctypes.c_int
+            return bool(library.SCIPrationalIsLE(dual_bound, target))
+        finally:
+            library.SCIPrationalFree.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
+            library.SCIPrationalFree.restype = None
+            library.SCIPrationalFree(ctypes.byref(target))
+
+    return bool(_with_exact_dual_bound(model, _compare))
 
 
 _EventhdlrBase = Eventhdlr if Eventhdlr is not None else object
@@ -159,15 +168,17 @@ class _ExactDualBoundStopEventhdlr(_EventhdlrBase):  # type: ignore[misc]
         self.model.dropEvent(SCIP_EVENTTYPE.DUALBOUNDIMPROVED, self)
 
     def eventexec(self, event: Any) -> None:
-        dual_bound = _exact_dual_bound_fraction(self.model)
-        if dual_bound is None:
+        try:
+            reached_target = _exact_dual_bound_reaches_target(self.model, self.target_ratio)
+        except Exception as exc:
+            state = _EXACT_TARGET_STOP_STATE.setdefault(_exact_target_state_key(self.model), {})
+            state["error"] = str(exc)
             return
-        if dual_bound > self.target_ratio:
+        if not reached_target:
             return
         self.hit = True
         state = _EXACT_TARGET_STOP_STATE.setdefault(_exact_target_state_key(self.model), {})
         state["reached"] = True
-        state["bound"] = dual_bound
         self.model.interruptSolve()
 
 
