@@ -5,8 +5,9 @@ import math
 
 from multifit_optveri.config import SUPPORTED_SOLVER_BACKENDS
 from multifit_optveri.experiments import ExperimentCase
+from multifit_optveri.models.obv_core import BuiltObvModel
 from multifit_optveri.models import obv_scip
-from multifit_optveri.models.obv_gurobi import BuiltObvModel, build_obv_model as build_gurobi_obv_model
+from multifit_optveri.models.obv_gurobi import build_obv_model as build_gurobi_obv_model
 from multifit_optveri.models.spec import ObvModelDimensions
 
 try:

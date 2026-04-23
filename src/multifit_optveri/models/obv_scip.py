@@ -5,8 +5,8 @@ from itertools import product
 from typing import Any
 
 from multifit_optveri.experiments import ExperimentCase
-from multifit_optveri.models import obv_gurobi
-from multifit_optveri.models.obv_gurobi import BuiltObvModel
+from multifit_optveri.models import obv_core
+from multifit_optveri.models.obv_core import BuiltObvModel
 
 try:
     from pyscipopt import Model as PyScipModel
@@ -109,7 +109,7 @@ def _scip_quicksum_compat(values) -> Any:
 
 
 class _ScipTupleDict(dict):
-    """Small dict-like stand in for Gurobi tupledict."""
+    """Small dict-like stand in for the shared builder's tupledict API."""
 
 
 class _ScipParamsCompat:
@@ -314,28 +314,28 @@ class _ScipGpCompat:
 
 
 @contextmanager
-def _patched_gurobi_module():
-    original_gp = obv_gurobi.gp
-    original_grb = obv_gurobi.GRB
-    original_exact_mtf_assignments = obv_gurobi._apply_exact_mtf_assignments
+def _patched_core_backend():
+    original_gp = obv_core.gp
+    original_grb = obv_core.GRB
+    original_exact_mtf_assignments = obv_core._apply_exact_mtf_assignments
     try:
-        obv_gurobi.gp = _ScipGpCompat()
-        obv_gurobi.GRB = _ScipGrbCompat
-        obv_gurobi._apply_exact_mtf_assignments = _apply_exact_mtf_assignments_scip
+        obv_core.gp = _ScipGpCompat()
+        obv_core.GRB = _ScipGrbCompat
+        obv_core._apply_exact_mtf_assignments = _apply_exact_mtf_assignments_scip
         yield
     finally:
-        obv_gurobi.gp = original_gp
-        obv_gurobi.GRB = original_grb
-        obv_gurobi._apply_exact_mtf_assignments = original_exact_mtf_assignments
+        obv_core.gp = original_gp
+        obv_core.GRB = original_grb
+        obv_core._apply_exact_mtf_assignments = original_exact_mtf_assignments
 
 
 def _apply_exact_mtf_assignments_scip(
     model: _ScipModelCompat,
     case: ExperimentCase,
     q: _ScipTupleDict,
-    layout: obv_gurobi.MtfProfileLayout,
+    layout: obv_core.MtfProfileLayout,
 ) -> dict[int, tuple[int, ...]]:
-    assignment = obv_gurobi._build_exact_mtf_assignment(case, layout)
+    assignment = obv_core._build_exact_mtf_assignment(case, layout)
     assigned_machine_by_job = {
         job_index: machine_index for machine_index, machine_jobs in assignment.items() for job_index in machine_jobs
     }
@@ -356,5 +356,5 @@ def build_obv_model(case: ExperimentCase) -> BuiltObvModel:
             "PySCIPOpt is not available. Install pyscipopt to use the SCIP backend."
         )
 
-    with _patched_gurobi_module():
-        return obv_gurobi.build_obv_model(case)
+    with _patched_core_backend():
+        return obv_core.build_obv_model(case)
