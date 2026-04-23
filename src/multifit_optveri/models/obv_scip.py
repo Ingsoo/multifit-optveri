@@ -330,7 +330,27 @@ def _apply_scip_param(model: Any, name: str, value: object) -> None:
         model.setParam("presolving/maxrounds", max_rounds)
         return
     if name == "SCIPExact":
-        model.setBoolParam("exact/enable", bool(value))
+        exact_enabled = bool(value)
+        try:
+            model.setBoolParam("exact/enable", exact_enabled)
+            return
+        except KeyError:
+            pass
+
+        if hasattr(model, "enableExactSolving"):
+            try:
+                model.enableExactSolving(exact_enabled)
+                return
+            except Exception as exc:
+                raise ScipUnavailableError(
+                    "This SCIP/PySCIPOpt build does not support exact solving. "
+                    "Install SCIP 10+ with exact-solving support, or disable solver.scip_exact."
+                ) from exc
+
+        raise ScipUnavailableError(
+            "This SCIP/PySCIPOpt build does not expose exact solving. "
+            "Install SCIP 10+ with exact-solving support, or disable solver.scip_exact."
+        )
         return
     if name == "NonConvex":
         return
