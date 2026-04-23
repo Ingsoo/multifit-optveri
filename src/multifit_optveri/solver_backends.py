@@ -216,6 +216,7 @@ def _solve_case_with_scip_exact(case: ExperimentCase) -> BackendRunResult:
                     outcome=outcome,
                 )
             finally:
+                obv_scip.clear_exact_target_stop_state(model)
                 model.freeProb()
     finally:
         if hasattr(export_model, "dispose"):

@@ -36,6 +36,7 @@ class _ScipRational(ctypes.Structure):
 
 
 _SCIP_OKAY = 1
+_EXACT_TARGET_STOP_STATE: dict[int, dict[str, Any]] = {}
 
 
 def _raise_for_scip_error(return_code: int, *, func_name: str) -> None:
@@ -149,8 +150,9 @@ class _ExactDualBoundStopEventhdlr(_EventhdlrBase):  # type: ignore[misc]
         if dual_bound < self.target_ratio:
             return
         self.hit = True
-        setattr(self.model, "_multifit_exact_target_reached", True)
-        setattr(self.model, "_multifit_exact_target_bound", dual_bound)
+        state = _EXACT_TARGET_STOP_STATE.setdefault(id(self.model), {})
+        state["reached"] = True
+        state["bound"] = dual_bound
         self.model.interruptSolve()
 
 
@@ -550,12 +552,22 @@ def install_exact_target_stop_handler(model: Any, case: ExperimentCase) -> None:
         "multifit_exact_target_stop",
         "Interrupt exact SCIP once the exact dual bound reaches the target ratio.",
     )
-    setattr(model, "_multifit_exact_target_stop_handler", handler)
-    setattr(model, "_multifit_exact_target_reached", False)
+    _EXACT_TARGET_STOP_STATE[id(model)] = {
+        "handler": handler,
+        "reached": False,
+        "bound": None,
+    }
 
 
 def exact_target_stop_reached(model: Any) -> bool:
+    state = _EXACT_TARGET_STOP_STATE.get(id(model))
+    if state is not None:
+        return bool(state.get("reached", False))
     return bool(getattr(model, "_multifit_exact_target_reached", False))
+
+
+def clear_exact_target_stop_state(model: Any) -> None:
+    _EXACT_TARGET_STOP_STATE.pop(id(model), None)
 
 
 def read_exact_problem(problem_path: str, case: ExperimentCase) -> Any:
