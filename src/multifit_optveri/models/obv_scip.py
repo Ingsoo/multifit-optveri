@@ -90,7 +90,16 @@ def _get_scip_pointer(model: Any) -> ctypes.c_void_p:
     return ctypes.c_void_p(pointer)
 
 
-def _exact_dual_bound_fraction(model: Any) -> Fraction:
+def _parse_exact_rational_text(text: str) -> Fraction | None:
+    normalized = text.strip().lower()
+    if normalized in {"-infinity", "-inf"}:
+        return None
+    if normalized in {"infinity", "+infinity", "inf", "+inf"}:
+        raise ScipUnavailableError("Encountered an unexpected positive infinite exact dual bound.")
+    return Fraction(text)
+
+
+def _exact_dual_bound_fraction(model: Any) -> Fraction | None:
     library = _load_scip_library()
     scip_pointer = _get_scip_pointer(model)
 
@@ -113,7 +122,7 @@ def _exact_dual_bound_fraction(model: Any) -> Fraction:
         library.SCIPrationalToString.restype = ctypes.c_int
         library.SCIPrationalToString(rational, text_buffer, buffer_size)
         rendered = text_buffer.value.decode("ascii").strip()
-        return Fraction(rendered)
+        return _parse_exact_rational_text(rendered)
     finally:
         library.SCIPrationalFree.argtypes = [ctypes.POINTER(ctypes.POINTER(_ScipRational))]
         library.SCIPrationalFree.restype = None
@@ -141,6 +150,8 @@ class _ExactDualBoundStopEventhdlr(_EventhdlrBase):  # type: ignore[misc]
 
     def eventexec(self, event: Any) -> None:
         dual_bound = _exact_dual_bound_fraction(self.model)
+        if dual_bound is None:
+            return
         if dual_bound < self.target_ratio:
             return
         self.hit = True
