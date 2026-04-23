@@ -19,3 +19,4 @@ presolve = 1
 non_convex = 2
 output_flag = 0
 legacy_best_bd_stop_at_target = true
+threads = 8
